@@ -28,6 +28,8 @@ BTriggerProcessor::BTriggerProcessor()
     pOutGain = apvts.getRawParameterValue ("outGain");
     pMix     = apvts.getRawParameterValue ("mix");
     pReplace = apvts.getRawParameterValue ("replace");
+    for (int i = 0; i < BT::Fx::Count; ++i)
+        fxp[i] = apvts.getRawParameterValue (BT::Fx::def (i).id);
     for (int l = 0; l < kLayers; ++l)
         layerActive[l].store (l < 4);
     for (int l = 0; l < kLayers; ++l)
@@ -248,11 +250,18 @@ void BTriggerProcessor::getStateInformation (juce::MemoryBlock& dest)
         state.setProperty ("active" + juce::String (l), layerActive[l].load(), nullptr);
     }
 
+    state.setProperty ("advanced", advancedPage.load(), nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
 
 void BTriggerProcessor::setStateInformation (const void* data, int size)
+{
+    applyState (data, size, true);
+}
+
+void BTriggerProcessor::applyState (const void* data, int size, bool withMode)
 {
     auto xml = getXmlFromBinary (data, size);
     if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
@@ -268,9 +277,46 @@ void BTriggerProcessor::setStateInformation (const void* data, int size)
         const juce::String path = tree.getProperty ("layer" + juce::String (l)).toString();
         if (path.isEmpty())
             clearLayer (l);
+        else if (layerHasSample (l) && layerPaths[l] == path)
+            continue;                                  // already loaded (A/B switch): no need to read it again
         else if (juce::File (path).existsAsFile())
             loadLayerFile (l, juce::File (path));
     }
+    if (withMode)
+        advancedPage.store ((bool) tree.getProperty ("advanced", false));
+    ++structureRevision;
+}
+
+void BTriggerProcessor::selectAB (int slot)
+{
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == abSlot)
+        return;
+    getStateInformation (abState[abSlot]);
+    if (abState[slot].getSize() == 0)
+        abState[slot] = abState[abSlot];
+    abSlot = slot;
+    applyState (abState[slot].getData(), (int) abState[slot].getSize(), false);
+}
+
+void BTriggerProcessor::copyToOtherAB()
+{
+    getStateInformation (abState[1 - abSlot]);
+}
+
+void BTriggerProcessor::resetAll()
+{
+    for (auto* prm : getParameters())
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (prm))
+            p->setValueNotifyingHost (p->getDefaultValue());
+
+    for (int l = 0; l < kLayers; ++l)
+    {
+        layerNames[l] = {};
+        layerActive[l].store (l < 4);
+        clearLayer (l);
+    }
+    loadDefaultLayers();
     ++structureRevision;
 }
 
@@ -305,6 +351,7 @@ void BTriggerProcessor::prepareToPlay (double sr, int)
     wpos = 0;
     markPending = false;
 
+    fx.prepare (sr);
     smMix.reset (sr, 0.02);
     smOut.reset (sr, 0.02);
     smMix.setCurrentAndTargetValue (mixTarget());
@@ -414,6 +461,12 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     // How far a new peak must rise above the previous hit's decaying tail to count as a new hit.
     // Higher detail picks up smaller rises (rolls, ghost notes).
     const float rise = juce::jmap (pDetail->load(), 0.0f, 100.0f, 3.0f, 1.6f);
+    {
+        float v[BT::Fx::Count];
+        for (int i = 0; i < BT::Fx::Count; ++i)
+            v[i] = fxp[i]->load();
+        fx.update (v);
+    }
     smMix.setTargetValue (mixTarget());
     smOut.setTargetValue (juce::Decibels::decibelsToGain (pOutGain->load()));
 
@@ -528,6 +581,8 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
                 previewPos += d->sampleRate / sampleRate;
             }
         }
+
+        fx.process (wetL, wetR);                       // gate, EQ, compressor, delay, reverb on the samples
 
         const float mix = smMix.getNextValue();
         const float og = smOut.getNextValue();

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <deque>
 #include "Parameters.h"
+#include "Effects.h"
 #include "SampleData.h"
 
 class BTriggerProcessor : public juce::AudioProcessor
@@ -65,6 +66,13 @@ public:
     void ensureLayerActive (int layer);
     std::atomic<int> structureRevision { 0 };
 
+    // ---- top bar: A/B snapshots, reset, Basic / Advanced page
+    std::atomic<bool> advancedPage { false };
+    int currentAB() const { return abSlot; }
+    void selectAB (int slot);        // 0 = A, 1 = B. The first visit to B starts as a copy of A.
+    void copyToOtherAB();            // copies the current settings into the other slot
+    void resetAll();                 // everything back to the starting sound
+
     void previewFile (const juce::File& file);
     void manualTrigger (float velocity) { manualVel.store (velocity); }
 
@@ -102,6 +110,11 @@ private:
     juce::String layerPaths[kLayers];
     juce::String layerNames[kLayers];
     std::atomic<bool> layerActive[kLayers];
+    BTFx::Chain fx;
+    std::atomic<float>* fxp[BT::Fx::Count] = {};
+    juce::MemoryBlock abState[2];
+    int abSlot = 0;
+    void applyState (const void* data, int size, bool withMode);
     float mixTarget() const { return pReplace->load() > 0.5f ? 1.0f : pMix->load() * 0.01f; }
     void resetLayerParams (int layer);
 

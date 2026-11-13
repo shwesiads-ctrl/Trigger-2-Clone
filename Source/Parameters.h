@@ -38,6 +38,69 @@ inline juce::NormalisableRange<float> faderRange()
         [] (float s, float e, float v) { return juce::jlimit (s, e, v); });
 }
 
+// ---- effects on the sample bus: Gate > EQ > Compressor > Delay > Reverb
+namespace Fx
+{
+enum Id { GateOn, GThr, GAtk, GHold, GRel, GRange,
+          CompOn, CThr, CRatio, CAtk, CRel, CKnee, CMakeup, CMix,
+          DelayOn, DTime, DFb, DLow, DHigh, DMix, DPing,
+          ReverbOn, RSize, RDamp, RWidth, RPre, RMix,
+          EqOn, EHp, ELoF, ELoG, ELmF, ELmG, ELmQ, EHmF, EHmG, EHmQ, EHiF, EHiG,
+          Count };
+
+struct Def { const char* id; const char* name; float lo, hi, step, def, skew; bool isBool; };
+
+inline const Def& def (int i)
+{
+    static const Def d[Count] = {
+        { "gateOn",   "Gate On",              0, 1, 1, 0, 1, true },
+        { "gateThr",  "Gate Threshold",     -80, 0, 0.1f, -40, 1, false },
+        { "gateAtk",  "Gate Attack",        0.1f, 50, 0.1f, 1, 0.4f, false },
+        { "gateHold", "Gate Hold",            0, 500, 1, 30, 0.5f, false },
+        { "gateRel",  "Gate Release",         5, 1000, 1, 120, 0.4f, false },
+        { "gateRange","Gate Range",         -80, 0, 0.1f, -60, 1, false },
+
+        { "compOn",   "Compressor On",        0, 1, 1, 0, 1, true },
+        { "compThr",  "Comp Threshold",     -60, 0, 0.1f, -18, 1, false },
+        { "compRatio","Comp Ratio",           1, 20, 0.1f, 4, 0.5f, false },
+        { "compAtk",  "Comp Attack",       0.1f, 100, 0.1f, 10, 0.4f, false },
+        { "compRel",  "Comp Release",        10, 1000, 1, 120, 0.4f, false },
+        { "compKnee", "Comp Knee",            0, 24, 0.1f, 6, 1, false },
+        { "compMakeup","Comp Makeup",         0, 24, 0.1f, 0, 1, false },
+        { "compMix",  "Comp Mix",             0, 100, 1, 100, 1, false },
+
+        { "delayOn",  "Delay On",             0, 1, 1, 0, 1, true },
+        { "delayTime","Delay Time",           1, 1000, 0.1f, 250, 0.5f, false },
+        { "delayFb",  "Delay Feedback",       0, 95, 1, 35, 1, false },
+        { "delayLow", "Delay Low Cut",       20, 2000, 1, 100, 0.4f, false },
+        { "delayHigh","Delay High Cut",     500, 20000, 1, 8000, 0.4f, false },
+        { "delayMix", "Delay Mix",            0, 100, 1, 25, 1, false },
+        { "delayPing","Delay Ping-Pong",      0, 1, 1, 0, 1, true },
+
+        { "revOn",    "Reverb On",            0, 1, 1, 0, 1, true },
+        { "revSize",  "Reverb Size",          0, 100, 1, 50, 1, false },
+        { "revDamp",  "Reverb Damping",       0, 100, 1, 50, 1, false },
+        { "revWidth", "Reverb Width",         0, 100, 1, 100, 1, false },
+        { "revPre",   "Reverb Pre-delay",     0, 100, 0.1f, 0, 0.6f, false },
+        { "revMix",   "Reverb Mix",           0, 100, 1, 25, 1, false },
+
+        { "eqOn",     "EQ On",                0, 1, 1, 0, 1, true },
+        { "eqHp",     "EQ High-pass",        20, 500, 1, 20, 0.4f, false },
+        { "eqLoF",    "EQ Low Freq",         30, 400, 1, 100, 0.5f, false },
+        { "eqLoG",    "EQ Low Gain",        -18, 18, 0.1f, 0, 1, false },
+        { "eqLmF",    "EQ Low-Mid Freq",    100, 3000, 1, 400, 0.5f, false },
+        { "eqLmG",    "EQ Low-Mid Gain",    -18, 18, 0.1f, 0, 1, false },
+        { "eqLmQ",    "EQ Low-Mid Q",      0.3f, 8, 0.01f, 1, 0.5f, false },
+        { "eqHmF",    "EQ High-Mid Freq",   500, 8000, 1, 2500, 0.5f, false },
+        { "eqHmG",    "EQ High-Mid Gain",   -18, 18, 0.1f, 0, 1, false },
+        { "eqHmQ",    "EQ High-Mid Q",     0.3f, 8, 0.01f, 1, 0.5f, false },
+        { "eqHiF",    "EQ High Freq",      2000, 18000, 1, 8000, 0.5f, false },
+        { "eqHiG",    "EQ High Gain",       -18, 18, 0.1f, 0, 1, false },
+    };
+    return d[i];
+}
+} // namespace Fx
+
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
 {
     using namespace juce;
@@ -70,6 +133,15 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         addBool  (muteId (i),  n + "Mute");
         addBool  (soloId (i),  n + "Solo");
         addBool  (phaseId (i), n + "Phase");
+    }
+
+    for (int i = 0; i < Fx::Count; ++i)
+    {
+        const auto& d = Fx::def (i);
+        if (d.isBool)
+            addBool (d.id, d.name, d.def > 0.5f);
+        else
+            addFloat (d.id, d.name, NormalisableRange<float> (d.lo, d.hi, d.step, d.skew), d.def);
     }
     return layout;
 }

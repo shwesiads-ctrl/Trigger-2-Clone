@@ -15,6 +15,16 @@ and plays up to four sample layers in its place, or blended with the original.
   - **ADD LAYER** adds a fader. The **×** on a layer removes it (one layer always stays).
   - **Click a layer's title** (the pencil) to give it your own name. It is saved with the project. Unnamed layers are called Layer 1, 2, 3 ...
 - **REPLACE ORIGINAL** (on by default): the original drum is removed and only your samples play. Switch it off to blend the original with the samples; the **Mix** knob then sets the balance (0 % original only, 100 % samples only). Output Volume is the final gain.
+- **Top bar**
+  - **A / B**: two complete sets of settings to compare. B starts as a copy of A the first time you open it. **COPY TO B** (or **COPY TO A**) copies the current settings across. A and B are kept while the plugin window or project is open.
+  - **RESET** puts every knob, layer and effect back to the starting sound (asks first).
+  - **BASIC / ADVANCED** switches the main page. The choice is saved with the project.
+- **Advanced page**: five effects that work on the sample layers, in this order: Gate, EQ, Compressor, Delay, Reverb. Each has its own ON/OFF switch (off by default), so the starting sound is unchanged.
+  - **Gate**: Threshold, Attack, Hold, Release, Range (how far the gate closes).
+  - **Compressor**: Threshold, Ratio, Attack, Release, Knee, Makeup, Mix (parallel compression).
+  - **Delay**: Time (1 to 1000 ms), Feedback, Low Cut, High Cut (these shape the repeats), Mix, Ping-Pong.
+  - **Reverb**: Size, Damping, Width, Pre-delay, Mix.
+  - **EQ**: High-pass, Low shelf (Freq, Gain), two bells (Freq, Gain, Q), High shelf (Freq, Gain).
 - **Waveform and meters**: the last two seconds of input with a marker on every detected hit.
 - **TRIGGER button** plays the layers without any input, handy for checking your samples.
 - **Library** (left side)
@@ -26,7 +36,7 @@ and plays up to four sample layers in its place, or blended with the original.
   - Click a file to hear it. Double-click it to load it into the first empty layer.
   - Right-click a layer's file box to empty the layer. Right-click a file in My Library to remove it.
   - The PRESETS tab loads a few starting points.
-- Settings and the loaded sample files are saved with your DAW project.
+- Settings, layers, effects and the loaded sample files are saved with your DAW project.
 - The window can be resized.
 
 The library lives in `Documents/B Trigger/`.

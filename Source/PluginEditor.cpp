@@ -1,12 +1,22 @@
 #include "PluginEditor.h"
+#include "FxPage.h"
 
 using namespace BTUI;
 
 namespace
 {
 constexpr int kDesignW = 1180;
-constexpr int kDesignH = 533;
+constexpr int kDesignH = 577;     // 44 px top bar + the 533 px main area
+constexpr int kBarH = 44;
 }
+
+// A transparent page that paints its own panels and lets mouse clicks fall through to what is under it.
+struct OverlayPage : public juce::Component
+{
+    std::function<void (juce::Graphics&)> paintFn;
+    OverlayPage() { setInterceptsMouseClicks (false, true); }
+    void paint (juce::Graphics& g) override { if (paintFn) paintFn (g); }
+};
 
 // Everything is laid out at a fixed 1180 x 533 design size; the editor scales this component
 // to whatever window size the host gives it.
@@ -20,39 +30,94 @@ public:
         setSize (kDesignW, kDesignH);
         auto& vt = proc.apvts;
 
+        // ---- top bar: A/B, Reset, Basic / Advanced
+        for (auto* b : { &abA, &abB })
+        {
+            addAndMakeVisible (*b);
+            b->setRadioGroupId (101);
+            b->setClickingTogglesState (true);
+        }
+        abA.setBounds (24, 10, 36, 28);
+        abB.setBounds (64, 10, 36, 28);
+        abA.onClick = [this] { if (abA.getToggleState()) proc.selectAB (0); };
+        abB.onClick = [this] { if (abB.getToggleState()) proc.selectAB (1); };
+
+        addAndMakeVisible (copyBtn);
+        copyBtn.setBounds (110, 10, 96, 28);
+        copyBtn.onClick = [this] { proc.copyToOtherAB(); };
+
+        addAndMakeVisible (resetBtn);
+        resetBtn.setBounds (222, 10, 80, 28);
+        resetBtn.onClick = [this]
+        {
+            SafePointer<Component> sp (this);
+            AlertWindow::showAsync (MessageBoxOptions()
+                                        .withIconType (MessageBoxIconType::QuestionIcon)
+                                        .withTitle ("Reset")
+                                        .withMessage ("Put every knob and layer back to the starting settings?")
+                                        .withButton ("Reset")
+                                        .withButton ("Cancel")
+                                        .withAssociatedComponent (this),
+                                    [this, sp] (int r)
+                                    {
+                                        if (r == 0 && sp != nullptr)
+                                            proc.resetAll();
+                                    });
+        };
+
+        for (auto* b : { &basicBtn, &advBtn })
+        {
+            addAndMakeVisible (*b);
+            b->setRadioGroupId (102);
+            b->setClickingTogglesState (true);
+        }
+        basicBtn.setBounds (988, 10, 80, 28);
+        advBtn.setBounds (1072, 10, 88, 28);
+        basicBtn.onClick = [this] { if (basicBtn.getToggleState()) { proc.advancedPage = false; syncTopBar(); } };
+        advBtn.onClick   = [this] { if (advBtn.getToggleState())   { proc.advancedPage = true;  syncTopBar(); } };
+
+        // ---- library stays visible on both pages
         addAndMakeVisible (library);
-        library.setBounds (12, 12, 208, 508);
+        library.setBounds (12, 12 + kBarH, 208, 508);
+
+        // ---- pages sit on top of the library's neighbours and let clicks through
+        addAndMakeVisible (basicPage);
+        basicPage.setBounds (0, kBarH, kDesignW, 533);
+        basicPage.paintFn = [this] (Graphics& g) { paintBasic (g); };
+
+        addChildComponent (advPage);
+        advPage.setBounds (236, 12 + kBarH, AdvancedPage::kPageW, AdvancedPage::kPageH);
 
         // input
-        addAndMakeVisible (inMeter);
+        basicPage.addAndMakeVisible (inMeter);
         inMeter.setBounds (251, 38, 68, 128);
-        kIn.setup (*this, vt, "inGain", kGreen, [] (double v) { return String (v, 2) + " dB"; });
+        kIn.setup (basicPage, vt, "inGain", kGreen, [] (double v) { return String (v, 2) + " dB"; });
         kIn.slider.setBounds (268, 188, 34, 34);
         kIn.pill.setBounds (252, 226, 66, 20);
 
         // waveform and trigger button
-        addAndMakeVisible (wave);
+        basicPage.addAndMakeVisible (wave);
         wave.setBounds (336, 22, 532, 232);
 
-        addAndMakeVisible (trigBtn);
+        basicPage.addAndMakeVisible (trigBtn);
         trigBtn.getProperties().set ("primary", true);
         trigBtn.setBounds (542, 259, 120, 26);
         trigBtn.onClick = [this] { proc.manualTrigger (0.85f); };
 
         // REPLACE: on = the original drum is removed and only the samples play. Off = blend using MIX.
-        addAndMakeVisible (replaceBtn);
+        basicPage.addAndMakeVisible (replaceBtn);
         replaceBtn.setClickingTogglesState (true);
         replaceBtn.setBounds (372, 259, 150, 26);
         replaceAtt = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (vt, "replace", replaceBtn);
 
-        addAndMakeVisible (addLayerBtn);
+        basicPage.addAndMakeVisible (addLayerBtn);
         addLayerBtn.setBounds (682, 259, 150, 26);
         addLayerBtn.onClick = [this] { proc.addLayer(); };
 
         // detection knobs
-        kSens.setup (*this, vt, "sens", kOrange, [] (double v) { return String ((int) std::round (v)); });
-        kRetr.setup (*this, vt, "retrig", kOrange, [] (double v) { return String ((int) std::round (v)) + " ms"; });
-        kDet.setup (*this, vt, "detail", kOrange, [] (double v) { return String ((int) std::round (v)); });
+        kSens.setup (basicPage, vt, "sens", kOrange, [] (double v) { return String ((int) std::round (v)); });
+        kRetr.setup (basicPage, vt, "retrig", kOrange, [] (double v) { return String ((int) std::round (v)) + " ms"; });
+        kDet.setup (basicPage, vt, "detail", kOrange, [] (double v) { return String ((int) std::round (v)); });
         KnobUnit* rows[3] = { &kSens, &kRetr, &kDet };
         for (int r = 0; r < 3; ++r)
         {
@@ -62,17 +127,17 @@ public:
         }
 
         // output
-        addAndMakeVisible (outMeter);
+        basicPage.addAndMakeVisible (outMeter);
         outMeter.setBounds (1080, 38, 68, 80);
-        kOut.setup (*this, vt, "outGain", kGreen, [] (double v) { return String (v, 2) + " dB"; });
+        kOut.setup (basicPage, vt, "outGain", kGreen, [] (double v) { return String (v, 2) + " dB"; });
         kOut.slider.setBounds (1099, 140, 30, 30);
         kOut.pill.setBounds (1081, 174, 66, 20);
-        kMix.setup (*this, vt, "mix", kGreen, [] (double v) { return String ((int) std::round (v)) + "%"; });
+        kMix.setup (basicPage, vt, "mix", kGreen, [] (double v) { return String ((int) std::round (v)) + "%"; });
         kMix.slider.setBounds (1099, 216, 30, 30);
         kMix.pill.setBounds (1081, 250, 66, 20);
 
         // sample layers: a scrolling row, so more than four layers still fit
-        addAndMakeVisible (stripView);
+        basicPage.addAndMakeVisible (stripView);
         stripView.setBounds (243, 290, 918, 232);
         stripView.setViewedComponent (&stripHolder, false);
         stripView.setScrollBarsShown (false, true);
@@ -80,6 +145,7 @@ public:
         stripView.setColour (ScrollBar::thumbColourId, Colours::white.withAlpha (0.8f));
         rebuildStrips();
 
+        syncTopBar();
         startTimerHz (30);
     }
 
@@ -102,6 +168,15 @@ public:
         g.setGradientFill (ColourGradient (Colour (0xfff7e23a), w * 0.7f, -h * 0.05f, Colour (0x00f7e23a), w * 0.7f - 420.0f, -h * 0.05f, true));
         g.fillAll();
 
+        // top bar
+        drawGlass (g, { 12.0f, 6.0f, 1156.0f, 36.0f }, 18.0f);
+        g.setColour (kInk);
+        g.setFont (bFont (13.0f));
+        g.drawText ("B TRIGGER", 330, 6, 520, 36, Justification::centred, false);
+    }
+
+    void paintBasic (juce::Graphics& g)
+    {
         drawGlass (g, { 240.0f, 10.0f, 90.0f, 254.0f }, 20.0f);
         drawGlass (g, { 1066.0f, 10.0f, 96.0f, 272.0f }, 20.0f);
 
@@ -151,6 +226,27 @@ private:
             kMix.slider.setEnabled (! replace);
         }
         addLayerBtn.setEnabled (proc.activeLayerCount() < BTriggerProcessor::kLayers);
+        syncTopBar();
+    }
+
+    // keeps the A/B, copy and page buttons in step with the processor (it can change from a project load or the host)
+    void syncTopBar()
+    {
+        const int ab = proc.currentAB();
+        abA.setToggleState (ab == 0, dontSendNotification);
+        abB.setToggleState (ab == 1, dontSendNotification);
+        const String copyText = ab == 0 ? "COPY TO B" : "COPY TO A";
+        if (copyBtn.getButtonText() != copyText)
+            copyBtn.setButtonText (copyText);
+
+        const bool adv = proc.advancedPage.load();
+        basicBtn.setToggleState (! adv, dontSendNotification);
+        advBtn.setToggleState (adv, dontSendNotification);
+        if (basicPage.isVisible() == adv)
+        {
+            basicPage.setVisible (! adv);
+            advPage.setVisible (adv);
+        }
     }
 
     void rebuildStrips()
@@ -182,6 +278,9 @@ private:
     LibraryPanel library;
     LedMeter inMeter, outMeter;
     WaveView wave;
+    TextButton abA { "A" }, abB { "B" }, copyBtn { "COPY TO B" }, resetBtn { "RESET" }, basicBtn { "BASIC" }, advBtn { "ADVANCED" };
+    OverlayPage basicPage;
+    AdvancedPage advPage { proc };
     TextButton trigBtn { String::fromUTF8 ("\xe2\x96\xb6 TRIGGER") };
     TextButton replaceBtn { "REPLACE ORIGINAL" }, addLayerBtn { String::fromUTF8 ("\xef\xbc\x8b ADD LAYER") };
     std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> replaceAtt;
