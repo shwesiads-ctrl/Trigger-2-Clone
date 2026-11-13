@@ -50,8 +50,16 @@ public:
     bool loadFactoryFile (int layer, const juce::String& fileName);
     void clearLayer (int layer);
     bool layerHasSample (int layer) const { return layerPaths[layer].isNotEmpty(); }
-    juce::String layerDisplayName (int layer) const;
+    juce::String layerDisplayName (int layer) const;   // custom name, or "Layer N"
     juce::String layerFileName (int layer) const;
+    juce::String layerPath (int layer) const { return layerPaths[layer]; }
+    void setLayerName (int layer, const juce::String& name);
+    juce::String layerCustomName (int layer) const { return layerNames[layer]; }
+
+    // Extra folders the user linked into the library (kept in a small text file, not in the project)
+    static juce::Array<juce::File> linkedFolders();
+    static bool addLinkedFolder (const juce::File& folder);
+    static void removeLinkedFolder (const juce::File& folder);
     void previewFile (const juce::File& file);
     void manualTrigger (float velocity) { manualVel.store (velocity); }
 
@@ -87,6 +95,7 @@ private:
     SampleData::Ptr activeSample[kLayers];
     std::deque<SampleData::Ptr> retired;     // keeps replaced samples alive past the audio thread
     juce::String layerPaths[kLayers];
+    juce::String layerNames[kLayers];
 
     juce::SpinLock previewLock;
     SampleData::Ptr previewData, activePreview;

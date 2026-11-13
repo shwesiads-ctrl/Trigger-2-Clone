@@ -12,15 +12,21 @@ and plays up to four sample layers in its place, or blended with the original.
   - *Input Volume* is applied before detection, so a hotter input finds quieter hits.
 - **Velocity**: louder hits play their samples louder.
 - **Four sample layers**, each with level fader, pan, tune (+/- 12 semitones), Solo, Mute and polarity (Ø).
+  - **Double-click a layer's title** to give it your own name (saved with the project). Unnamed layers show Layer 1 to 4; the box under the fader shows the loaded file.
 - **Mix**: 0 % is the original drums only, 100 % is the samples only. Output Volume is the final gain.
 - **Waveform and meters**: the last two seconds of input with a marker on every detected hit.
 - **TRIGGER button** plays the layers without any input, handy for checking your samples.
 - **Library** (left side)
-  - Built-in kicks, snares and toms are created the first time the plugin loads.
-  - **IMPORT TO MY LIBRARY** copies WAV, MP3, FLAC, OGG, AIFF and M4A files into your library. You can also drag files onto the library panel.
-  - Click a file to hear it. Drag it onto a layer, or double-click it to load it into the first empty layer.
-  - Right-click a file in My Library to remove it.
-  - Right-click a layer's file box to empty the layer. You can also drop files from your computer onto a layer.
+  - Built-in kicks, snares and toms are created the first time the plugin loads. They are modelled sounds (pitch-dropping shell, overtones, stick transient, snare wires, room), not recordings. Import your own samples for real-kit tone.
+  - **IMPORT TO MY LIBRARY** copies WAV, MP3, FLAC, OGG, AIFF and M4A files into your library.
+  - **Folders**: **+ FOLDER** links any folder on your computer into the library (orange folder, files stay where they are). **NEW** makes a folder inside My Library (or inside the selected folder). **REMOVE** unlinks a linked folder, or moves a folder you made to the Trash. Right-click a folder or file for the same actions.
+  - **Drag and drop**
+    - Drag a sample from the library onto a layer, or drag one layer's sample onto another layer to copy it.
+    - Drop files from your computer onto a layer, onto the library, or onto a folder in the library (files are copied in).
+    - Drop a whole folder onto the library to link it.
+    - Drag a sample onto another folder to move it (inside My Library) or copy it.
+  - Click a file to hear it. Double-click it to load it into the first empty layer.
+  - Right-click a layer's file box to empty the layer.
   - The PRESETS tab loads a few starting points.
 - Settings and the loaded sample files are saved with your DAW project.
 - The window can be resized.
@@ -29,11 +35,9 @@ The library lives in `Documents/B Trigger/`.
 
 ## Get the VST3 without installing anything (GitHub Actions)
 
-1. Create a new repository on GitHub and upload everything in this folder (including the `.github` folder).
-2. Open the **Actions** tab. The *Build B Trigger* workflow starts by itself on every push. You can also start it with **Run workflow**.
-3. When it finishes (it can take several minutes the first time), open the run and download
-   `B-Trigger-Windows` or `B-Trigger-macOS` under **Artifacts**.
-4. Inside you will find the `VST3` folder (the plugin) and a `Standalone` folder (a small app for testing without a DAW).
+1. Push this folder to a GitHub repository (including the `.github` folder). The *Build B Trigger* workflow starts by itself on every push, or start it with **Run workflow** in the **Actions** tab.
+2. When it finishes (a few minutes), open the **Releases** page of the repository. Each run publishes `B-Trigger-Windows.zip` and `B-Trigger-macOS.zip`.
+3. Inside each zip you will find `B Trigger.vst3` (the plugin) and a small Standalone app for testing without a DAW.
 
 ## Build on your own computer
 

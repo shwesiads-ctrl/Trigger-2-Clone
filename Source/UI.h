@@ -380,6 +380,20 @@ public:
         setupButton (sBtn, soloAtt, BT::soloId (i), false);
         setupButton (mBtn, muteAtt, BT::muteId (i), true);
         setupButton (pBtn, phaseAtt, BT::phaseId (i), false);
+
+        addChildComponent (nameEdit);
+        nameEdit.setFont (bFont (16.0f));
+        nameEdit.setJustification (Justification::centred);
+        nameEdit.setMultiLine (false);
+        nameEdit.setSelectAllWhenFocused (true);
+        nameEdit.setInputRestrictions (32);
+        nameEdit.setColour (TextEditor::backgroundColourId, Colours::white.withAlpha (0.9f));
+        nameEdit.setColour (TextEditor::textColourId, kInk);
+        nameEdit.setColour (TextEditor::outlineColourId, Colours::transparentBlack);
+        nameEdit.setColour (TextEditor::focusedOutlineColourId, kOrange);
+        nameEdit.onReturnKey = [this] { finishRename (true); };
+        nameEdit.onEscapeKey = [this] { finishRename (false); };
+        nameEdit.onFocusLost = [this] { finishRename (true); };
     }
 
     void paint (Graphics& g) override
@@ -427,10 +441,41 @@ public:
         pBtn.setBounds (bx, 113, 24, 24);
         dbPill.setBounds ((getWidth() - 90) / 2, 158, 90, 20);
         slotBounds = { 8, 182, getWidth() - 16, 34 };
+        titleBounds = { 6, 6, getWidth() - 12, 24 };
+        nameEdit.setBounds (titleBounds);
+    }
+
+    // double-click the title to give the layer your own name
+    void mouseDoubleClick (const MouseEvent& e) override
+    {
+        if (titleBounds.contains (e.getPosition()))
+        {
+            nameEdit.setText (proc.layerCustomName (index), dontSendNotification);
+            nameEdit.setVisible (true);
+            nameEdit.grabKeyboardFocus();
+            nameEdit.selectAll();
+        }
+    }
+
+    // drag the loaded sample onto another layer to copy it there
+    void mouseDrag (const MouseEvent& e) override
+    {
+        if (dragStarted || ! slotBounds.contains (e.getMouseDownPosition()) || ! proc.layerHasSample (index)
+            || e.mods.isPopupMenu() || e.getDistanceFromDragStart() < 8)
+            return;
+        if (auto* c = DragAndDropContainer::findParentDragContainerFor (this))
+        {
+            dragStarted = true;
+            c->startDragging ("BT:" + proc.layerPath (index), this);
+        }
     }
 
     void mouseUp (const MouseEvent& e) override
     {
+        const bool wasDragging = dragStarted;
+        dragStarted = false;
+        if (wasDragging)
+            return;
         if (! slotBounds.contains (e.getPosition()) || e.mouseWasDraggedSinceMouseDown())
             return;
         if (e.mods.isPopupMenu())
@@ -464,6 +509,16 @@ public:
 private:
     void setHighlight (bool h) { highlight = h; repaint(); }
 
+    void finishRename (bool apply)
+    {
+        if (! nameEdit.isVisible())
+            return;
+        if (apply)
+            proc.setLayerName (index, nameEdit.getText());
+        nameEdit.setVisible (false);
+        repaint();
+    }
+
     void setupButton (TextButton& b, std::unique_ptr<ButtonAttachment>& att, const String& id, bool orange)
     {
         b.setClickingTogglesState (true);
@@ -493,7 +548,9 @@ private:
 
     BTriggerProcessor& proc;
     const int index;
-    bool highlight = false;
+    bool highlight = false, dragStarted = false;
+    Rectangle<int> titleBounds;
+    TextEditor nameEdit;
     static constexpr int knobColX1 = 92, knobColX2 = 146;
     Rectangle<int> slotBounds;
 
@@ -572,6 +629,12 @@ public:
         importBtn.getProperties().set ("primary", true);
         importBtn.onClick = [this] { startImport(); };
 
+        for (auto* b : { &addFolderBtn, &newFolderBtn, &removeFolderBtn })
+            addAndMakeVisible (*b);
+        addFolderBtn.onClick = [this] { startAddFolder(); };
+        newFolderBtn.onClick = [this] { promptNewFolder (selectedDirOrDefault()); };
+        removeFolderBtn.onClick = [this] { removeFolder (selectedFile()); };
+
         rebuild();
     }
 
@@ -601,14 +664,17 @@ public:
         tabLibrary.setBounds (8, 84, 94, 34);
         tabPresets.setBounds (106, 84, 94, 34);
         search.setBounds (8, 127, 192, 34);
-        tree.setBounds (8, 168, 192, 276);
+        tree.setBounds (8, 168, 192, 244);
         presetList.setBounds (8, 168, 192, 276);
+        addFolderBtn.setBounds (8, 416, 62, 28);
+        newFolderBtn.setBounds (73, 416, 62, 28);
+        removeFolderBtn.setBounds (138, 416, 62, 28);
         msg.setBounds (12, 448, 184, 14);
         importBtn.setBounds (8, 466, 192, 34);
     }
 
     bool isInterestedInFileDrag (const StringArray& files) override { return ! files.isEmpty(); }
-    void filesDropped (const StringArray& files, int, int) override { importFiles (files); }
+    void filesDropped (const StringArray& files, int, int) override { importFiles (files, myLibrary()); }
 
     // ---- called by tree items
     bool fileVisible (const File& f) const
@@ -642,12 +708,6 @@ public:
         proc.loadLayerFile (target, f);
     }
 
-    void removeFromLibrary (const File& f)
-    {
-        f.moveToTrash();
-        rebuild();
-    }
-
     void rebuild()
     {
         std::unique_ptr<XmlElement> state (tree.getOpennessState (false));
@@ -670,7 +730,8 @@ private:
     class LibItem : public TreeViewItem
     {
     public:
-        LibItem (LibraryPanel& o, const File& f) : owner (o), file (f), isDir (f.isDirectory()) {}
+        LibItem (LibraryPanel& o, const File& f, bool linkedTop = false)
+            : owner (o), file (f), isDir (f.isDirectory()), linked (linkedTop) {}
 
         bool mightContainSubItems() override { return isDir; }
         String getUniqueName() const override { return file.getFullPathName(); }
@@ -695,7 +756,7 @@ private:
 
             if (isDir)
             {
-                g.setColour (Colour (0xffa6dc1c));
+                g.setColour (linked ? kOrange : Colour (0xffa6dc1c));
                 g.fillRoundedRectangle (3.0f, (float) h * 0.5f - 6.0f, 17.0f, 13.0f, 3.0f);
                 g.fillRoundedRectangle (3.0f, (float) h * 0.5f - 9.0f, 8.0f, 5.0f, 2.0f);
             }
@@ -714,19 +775,9 @@ private:
 
         void itemClicked (const MouseEvent& e) override
         {
-            if (e.mods.isPopupMenu() && ! isDir
-                && file.isAChildOf (BTriggerProcessor::libraryRoot().getChildFile ("My Library")))
+            if (e.mods.isPopupMenu())
             {
-                PopupMenu m;
-                m.addItem (1, "Remove from My Library");
-                Component::SafePointer<LibraryPanel> sp (&owner);
-                const File f = file;
-                m.showMenuAsync (PopupMenu::Options(), [sp, f] (int result)
-                                 {
-                                     if (result == 1)
-                                         if (auto* p = sp.getComponent())
-                                             p->removeFromLibrary (f);
-                                 });
+                owner.showItemMenu (file, linked);
                 return;
             }
 
@@ -734,6 +785,27 @@ private:
                 setOpen (! isOpen());
             else
                 owner.fileClicked (file);
+        }
+
+        // ---- drops: OS files and folders, and samples dragged from the tree or a layer
+        bool isInterestedInFileDrag (const StringArray&) override { return true; }
+
+        void filesDropped (const StringArray& files, int) override
+        {
+            const File dest = owner.dropTargetFor (file);
+            owner.deferred ([o = &owner, files, dest] { o->importFiles (files, dest); });
+        }
+
+        bool isInterestedInDragSource (const DragAndDropTarget::SourceDetails& d) override
+        {
+            return d.description.toString().startsWith ("BT:");
+        }
+
+        void itemDropped (const DragAndDropTarget::SourceDetails& d, int) override
+        {
+            const File src (d.description.toString().substring (3));
+            const File dest = owner.dropTargetFor (file);
+            owner.deferred ([o = &owner, src, dest] { o->moveOrCopyInto (src, dest); });
         }
 
         void itemDoubleClicked (const MouseEvent& e) override
@@ -760,6 +832,10 @@ private:
             for (const auto& d : dirs)
                 if (owner.dirVisible (d))
                     addSubItem (new LibItem (owner, d));
+            if (file == BTriggerProcessor::libraryRoot())
+                for (const auto& d : BTriggerProcessor::linkedFolders())
+                    if (owner.dirVisible (d))
+                        addSubItem (new LibItem (owner, d, true));
             for (const auto& f : files)
                 if (owner.fileVisible (f))
                     addSubItem (new LibItem (owner, f));
@@ -768,6 +844,7 @@ private:
         LibraryPanel& owner;
         File file;
         bool isDir;
+        bool linked;
     };
 
     void openAll (TreeViewItem* item)
@@ -802,6 +879,8 @@ private:
         tree.setVisible (library);
         search.setVisible (library);
         importBtn.setVisible (library);
+        for (auto* b : { &addFolderBtn, &newFolderBtn, &removeFolderBtn })
+            b->setVisible (library);
         presetList.setVisible (! library);
         msg.setVisible (true);
         if (! library)
@@ -819,35 +898,262 @@ private:
                                });
     }
 
-    void startImport()
+    // ---- library locations
+    static File myLibrary() { return BTriggerProcessor::libraryRoot().getChildFile ("My Library"); }
+    static File userSamples() { return BTriggerProcessor::libraryRoot().getChildFile ("User Samples"); }
+
+    static bool isLinkedFolder (const File& d) { return BTriggerProcessor::linkedFolders().contains (d); }
+
+    static bool isInsideLinked (const File& f)
     {
-        chooser = std::make_unique<FileChooser> ("Import audio into My Library", File(),
+        for (const auto& d : BTriggerProcessor::linkedFolders())
+            if (f == d || f.isAChildOf (d))
+                return true;
+        return false;
+    }
+
+    // folders the user may add to or reorganise (never the built-in factory sounds)
+    static bool isWritableLibraryDir (const File& d)
+    {
+        if (! d.isDirectory() || ! d.hasWriteAccess())
+            return false;
+        return d == myLibrary() || d.isAChildOf (myLibrary()) || d == userSamples() || d.isAChildOf (userSamples())
+               || isInsideLinked (d);
+    }
+
+    File dropTargetFor (const File& item) const
+    {
+        const File dir = item.isDirectory() ? item : item.getParentDirectory();
+        return isWritableLibraryDir (dir) ? dir : myLibrary();
+    }
+
+    File selectedFile() const
+    {
+        if (auto* it = dynamic_cast<LibItem*> (tree.getSelectedItem (0)))
+            return it->getFile();
+        return {};
+    }
+
+    File selectedDirOrDefault() const
+    {
+        const File f = selectedFile();
+        if (f == File())
+            return myLibrary();
+        return dropTargetFor (f);
+    }
+
+    void deferred (std::function<void()> fn)
+    {
+        SafePointer<LibraryPanel> sp (this);
+        MessageManager::callAsync ([sp, fn = std::move (fn)]
+                                   {
+                                       if (sp.getComponent() != nullptr)
+                                           fn();
+                                   });
+    }
+
+    void reopen (const File& dir)
+    {
+        rebuild();
+        std::function<bool (TreeViewItem*)> openPath = [&] (TreeViewItem* item) -> bool
+        {
+            auto* li = dynamic_cast<LibItem*> (item);
+            if (li == nullptr || ! li->mightContainSubItems())
+                return false;
+            const File f = li->getFile();
+            if (f == dir || dir.isAChildOf (f))
+            {
+                li->setOpen (true);
+                for (int i = 0; i < li->getNumSubItems(); ++i)
+                    openPath (li->getSubItem (i));
+                return true;
+            }
+            return false;
+        };
+        openPath (root.get());
+    }
+
+    // ---- folders
+    void startAddFolder()
+    {
+        chooser = std::make_unique<FileChooser> ("Add a folder of samples to the library", File());
+        SafePointer<LibraryPanel> sp (this);
+        chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectDirectories,
+                              [sp] (const FileChooser& fc)
+                              {
+                                  if (auto* self = sp.getComponent())
+                                      if (fc.getResult().isDirectory())
+                                          self->linkFolder (fc.getResult());
+                              });
+    }
+
+    void linkFolder (const File& dir)
+    {
+        if (BTriggerProcessor::addLinkedFolder (dir))
+        {
+            search.clear();
+            query = {};
+            reopen (dir);
+            say ("Folder added: " + dir.getFileName());
+        }
+        else
+            say ("That folder is already in the library");
+    }
+
+    void promptNewFolder (const File& parent)
+    {
+        dialog = std::make_unique<AlertWindow> ("New folder", "Name of the new folder in " + parent.getFileName(),
+                                                MessageBoxIconType::NoIcon, this);
+        dialog->addTextEditor ("name", "New Folder");
+        dialog->addButton ("Create", 1, KeyPress (KeyPress::returnKey));
+        dialog->addButton ("Cancel", 0, KeyPress (KeyPress::escapeKey));
+        SafePointer<LibraryPanel> sp (this);
+        dialog->enterModalState (true, ModalCallbackFunction::create ([sp, parent] (int result)
+                                 {
+                                     auto* self = sp.getComponent();
+                                     if (self == nullptr || self->dialog == nullptr)
+                                         return;
+                                     const String name = File::createLegalFileName (self->dialog->getTextEditorContents ("name").trim());
+                                     if (result == 1 && name.isNotEmpty())
+                                     {
+                                         const File made = parent.getChildFile (name);
+                                         if (made.exists())
+                                             self->say ("A folder with that name already exists");
+                                         else if (made.createDirectory().wasOk())
+                                             self->reopen (made);
+                                         else
+                                             self->say ("Could not create the folder");
+                                     }
+                                     self->deferred ([self] { self->dialog.reset(); });
+                                 }),
+                                 false);
+    }
+
+    void removeFolder (const File& dir)
+    {
+        if (! dir.isDirectory())
+        {
+            say ("Select a folder first");
+            return;
+        }
+
+        if (isLinkedFolder (dir))
+        {
+            BTriggerProcessor::removeLinkedFolder (dir);
+            rebuild();
+            say ("Folder removed (files stay on disk)");
+            return;
+        }
+
+        if (dir == myLibrary() || dir == userSamples() || dir == BTriggerProcessor::libraryRoot()
+            || dir == FactorySamples::factoryDir (BTriggerProcessor::libraryRoot())
+            || dir.isAChildOf (FactorySamples::factoryDir (BTriggerProcessor::libraryRoot())))
+        {
+            say ("Built-in folders can't be removed");
+            return;
+        }
+
+        if (isInsideLinked (dir))
+        {
+            say ("Remove the linked parent folder instead");
+            return;
+        }
+
+        SafePointer<LibraryPanel> sp (this);
+        AlertWindow::showAsync (MessageBoxOptions()
+                                    .withIconType (MessageBoxIconType::QuestionIcon)
+                                    .withTitle ("Remove folder")
+                                    .withMessage ("Move \"" + dir.getFileName() + "\" and its samples to the Trash?")
+                                    .withButton ("Remove")
+                                    .withButton ("Cancel")
+                                    .withAssociatedComponent (this),
+                                [sp, dir] (int result)
+                                {
+                                    if (result != 0)
+                                        return;
+                                    if (auto* self = sp.getComponent())
+                                    {
+                                        dir.moveToTrash();
+                                        self->rebuild();
+                                        self->say ("Folder moved to the Trash");
+                                    }
+                                });
+    }
+
+    void removeFile (const File& f)
+    {
+        f.moveToTrash();
+        rebuild();
+    }
+
+    void showItemMenu (const File& file, bool linkedTop)
+    {
+        PopupMenu m;
+        const bool dir = file.isDirectory();
+        const File target = dropTargetFor (file);
+        m.addItem (1, "New folder inside " + target.getFileName());
+        m.addItem (2, "Import files into " + target.getFileName() + "...");
+        if (dir)
+            m.addItem (3, linkedTop ? "Remove folder from library" : "Remove folder");
+        else if (isWritableLibraryDir (file.getParentDirectory()) && ! isInsideLinked (file))
+            m.addItem (4, "Remove file");
+
+        SafePointer<LibraryPanel> sp (this);
+        m.showMenuAsync (PopupMenu::Options(), [sp, file, target] (int r)
+                         {
+                             auto* self = sp.getComponent();
+                             if (self == nullptr)
+                                 return;
+                             if (r == 1)
+                                 self->promptNewFolder (target);
+                             else if (r == 2)
+                                 self->startImport (target);
+                             else if (r == 3)
+                                 self->removeFolder (file);
+                             else if (r == 4)
+                                 self->removeFile (file);
+                         });
+    }
+
+    // ---- importing
+    void startImport (File dest = {})
+    {
+        if (dest == File())
+            dest = myLibrary();
+        chooser = std::make_unique<FileChooser> ("Import audio into " + dest.getFileName(), File(),
                                                  "*.wav;*.wave;*.mp3;*.flac;*.ogg;*.aif;*.aiff;*.m4a;*.tci");
         SafePointer<LibraryPanel> sp (this);
         chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles
                                   | FileBrowserComponent::canSelectMultipleItems,
-                              [sp] (const FileChooser& fc)
+                              [sp, dest] (const FileChooser& fc)
                               {
                                   if (auto* self = sp.getComponent())
                                   {
                                       StringArray paths;
                                       for (const auto& f : fc.getResults())
                                           paths.add (f.getFullPathName());
-                                      self->importFiles (paths);
+                                      self->importFiles (paths, dest);
                                   }
                               });
     }
 
-    void importFiles (const StringArray& paths)
+    // Files are copied into dest. A dropped folder is added to the library as a linked folder.
+    void importFiles (const StringArray& paths, const File& destIn)
     {
-        const auto dest = BTriggerProcessor::libraryRoot().getChildFile ("My Library");
+        const File dest = isWritableLibraryDir (destIn) ? destIn : myLibrary();
         dest.createDirectory();
 
-        int added = 0;
+        int added = 0, folders = 0;
         String problem;
         for (const auto& p : paths)
         {
             const File f (p);
+            if (f.isDirectory())
+            {
+                if (BTriggerProcessor::addLinkedFolder (f))
+                    ++folders;
+                continue;
+            }
             if (! f.existsAsFile())
                 continue;
             if (f.hasFileExtension ("tci"))
@@ -865,19 +1171,35 @@ private:
                 ++added;
         }
 
-        if (added > 0)
+        if (added > 0 || folders > 0)
         {
             search.clear();
             query = {};
-            rebuild();
-            for (int i = 0; i < root->getNumSubItems(); ++i)
-                if (auto* item = dynamic_cast<LibItem*> (root->getSubItem (i)))
-                    if (item->getFile().getFileName() == "My Library")
-                        item->setOpen (true);
-            say (String (added) + (added == 1 ? " file" : " files") + " added to My Library");
+            reopen (dest);
+            String text;
+            if (added > 0)
+                text = String (added) + (added == 1 ? " file" : " files") + " added to " + dest.getFileName();
+            if (folders > 0)
+                text += String (text.isEmpty() ? "" : ", ") + String (folders) + (folders == 1 ? " folder" : " folders") + " added";
+            say (text);
         }
         else if (problem.isNotEmpty())
             say (problem);
+    }
+
+    // dragging a sample onto a folder: moves it inside the library, copies it otherwise
+    void moveOrCopyInto (const File& src, const File& destDir)
+    {
+        if (! src.existsAsFile() || ! destDir.isDirectory() || src.getParentDirectory() == destDir)
+            return;
+        const auto target = destDir.getNonexistentChildFile (src.getFileNameWithoutExtension(), src.getFileExtension(), false);
+        const bool movable = isWritableLibraryDir (src.getParentDirectory()) && ! isInsideLinked (src);
+        const bool ok = movable ? src.moveFileTo (target) : src.copyFileTo (target);
+        if (ok)
+        {
+            reopen (destDir);
+            say (String (movable ? "Moved to " : "Copied to ") + destDir.getFileName());
+        }
     }
 
     void applyPreset (const Preset& p)
@@ -933,6 +1255,8 @@ private:
     ListBox presetList;
     Label msg;
     TextButton importBtn { String::fromUTF8 ("\xef\xbc\x8b IMPORT TO MY LIBRARY") };
+    TextButton addFolderBtn { "+ FOLDER" }, newFolderBtn { "NEW" }, removeFolderBtn { "REMOVE" };
+    std::unique_ptr<AlertWindow> dialog;
     std::unique_ptr<LibItem> root;
     std::unique_ptr<FileChooser> chooser;
 };

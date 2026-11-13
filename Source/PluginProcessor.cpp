@@ -128,9 +128,54 @@ void BTriggerProcessor::clearLayer (int layer)
 
 juce::String BTriggerProcessor::layerDisplayName (int layer) const
 {
-    if (layerPaths[layer].isEmpty())
-        return "Empty";
-    return juce::File (layerPaths[layer]).getFileNameWithoutExtension().replaceCharacter ('_', ' ');
+    return layerNames[layer].isNotEmpty() ? layerNames[layer] : "Layer " + juce::String (layer + 1);
+}
+
+void BTriggerProcessor::setLayerName (int layer, const juce::String& name)
+{
+    if (layer >= 0 && layer < kLayers)
+        layerNames[layer] = name.trim().substring (0, 32);
+}
+
+static juce::File linkedFoldersFile()
+{
+    return BTriggerProcessor::libraryRoot().getChildFile ("linked_folders.txt");
+}
+
+juce::Array<juce::File> BTriggerProcessor::linkedFolders()
+{
+    juce::Array<juce::File> result;
+    juce::StringArray lines;
+    lines.addLines (linkedFoldersFile().loadFileAsString());
+    for (const auto& line : lines)
+    {
+        const juce::File f (line.trim());
+        if (line.trim().isNotEmpty() && f.isDirectory())
+            result.addIfNotAlreadyThere (f);
+    }
+    return result;
+}
+
+bool BTriggerProcessor::addLinkedFolder (const juce::File& folder)
+{
+    if (! folder.isDirectory() || folder.isAChildOf (libraryRoot()) || folder == libraryRoot())
+        return false;
+    auto list = linkedFolders();
+    list.addIfNotAlreadyThere (folder);
+    juce::StringArray lines;
+    for (const auto& f : list)
+        lines.add (f.getFullPathName());
+    return linkedFoldersFile().replaceWithText (lines.joinIntoString ("\n"));
+}
+
+void BTriggerProcessor::removeLinkedFolder (const juce::File& folder)
+{
+    auto list = linkedFolders();
+    list.removeFirstMatchingValue (folder);
+    juce::StringArray lines;
+    for (const auto& f : list)
+        lines.add (f.getFullPathName());
+    linkedFoldersFile().replaceWithText (lines.joinIntoString ("\n"));
 }
 
 juce::String BTriggerProcessor::layerFileName (int layer) const
@@ -172,7 +217,10 @@ void BTriggerProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
     auto state = apvts.copyState();
     for (int l = 0; l < kLayers; ++l)
+    {
         state.setProperty ("layer" + juce::String (l), layerPaths[l], nullptr);
+        state.setProperty ("name" + juce::String (l), layerNames[l], nullptr);
+    }
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
@@ -189,6 +237,7 @@ void BTriggerProcessor::setStateInformation (const void* data, int size)
 
     for (int l = 0; l < kLayers; ++l)
     {
+        layerNames[l] = tree.getProperty ("name" + juce::String (l)).toString();
         const juce::String path = tree.getProperty ("layer" + juce::String (l)).toString();
         if (path.isEmpty())
             clearLayer (l);
