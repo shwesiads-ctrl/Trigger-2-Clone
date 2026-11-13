@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -28,10 +31,33 @@ jobs:
       - name: Build VST3 and Standalone
         run: cmake --build build --config Release --parallel
 
-      - name: Upload
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p dist
+          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.app" -o -name "*.exe" \) -print
+          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.app" -o -name "*.exe" \) -exec cp -R {} dist/ \;
+          ls -la dist
+
+      - name: Zip (Windows)
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/* -DestinationPath B-Trigger-Windows.zip
+
+      - name: Zip (macOS)
+        if: matrix.name == 'macOS'
+        run: cd dist && ditto -c -k --sequesterRsrc . ../B-Trigger-macOS.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ matrix.name }}-build-${{ github.run_number }}
+          name: B Trigger ${{ matrix.name }} (build ${{ github.run_number }})
+          files: B-Trigger-${{ matrix.name }}.zip
+
+      - name: Upload artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: B-Trigger-${{ matrix.name }}
-          path: |
-            build/BTrigger_artefacts/Release/VST3
-            build/BTrigger_artefacts/Release/Standalone
+          path: B-Trigger-${{ matrix.name }}.zip
