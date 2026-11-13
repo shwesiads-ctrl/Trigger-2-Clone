@@ -4,6 +4,7 @@
 
 namespace BT
 {
+inline constexpr int kMaxLayers = 8;
 inline juce::String lvlId   (int i) { return "lvl"   + juce::String (i + 1); }
 inline juce::String panId   (int i) { return "pan"   + juce::String (i + 1); }
 inline juce::String tuneId  (int i) { return "tune"  + juce::String (i + 1); }
@@ -46,9 +47,9 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     {
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, name, range, def));
     };
-    auto addBool = [&] (const String& id, const String& name)
+    auto addBool = [&] (const String& id, const String& name, bool def = false)
     {
-        layout.add (std::make_unique<AudioParameterBool> (ParameterID { id, 1 }, name, false));
+        layout.add (std::make_unique<AudioParameterBool> (ParameterID { id, 1 }, name, def));
     };
 
     addFloat ("inGain",  "Input Volume", { -24.0f, 24.0f, 0.01f }, 0.0f);
@@ -57,9 +58,10 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addFloat ("detail",  "Detail",       { 0.0f, 100.0f, 1.0f }, 39.0f);
     addFloat ("outGain", "Output Volume",{ -24.0f, 12.0f, 0.01f }, 0.0f);
     addFloat ("mix",     "Mix",          { 0.0f, 100.0f, 1.0f }, 100.0f);
+    addBool  ("replace", "Replace Original", true);   // on: the original drum is removed, only samples play
 
-    const float defLevel[4] = { 0.0f, -6.0f, -12.0f, 0.0f };
-    for (int i = 0; i < 4; ++i)
+    const float defLevel[kMaxLayers] = { 0.0f, -6.0f, -12.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    for (int i = 0; i < kMaxLayers; ++i)
     {
         const String n = "Layer " + String (i + 1) + " ";
         addFloat (lvlId (i),  n + "Level", faderRange(), defLevel[i]);

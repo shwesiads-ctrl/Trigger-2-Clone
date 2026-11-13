@@ -8,7 +8,7 @@
 class BTriggerProcessor : public juce::AudioProcessor
 {
 public:
-    static constexpr int kLayers = 4;
+    static constexpr int kLayers = BT::kMaxLayers;   // layer slots; the user adds and removes them
     static constexpr int kVoices = 8;
     static constexpr int kCols   = 400;   // waveform columns, covering about 2 seconds
 
@@ -56,10 +56,15 @@ public:
     void setLayerName (int layer, const juce::String& name);
     juce::String layerCustomName (int layer) const { return layerNames[layer]; }
 
-    // Extra folders the user linked into the library (kept in a small text file, not in the project)
-    static juce::Array<juce::File> linkedFolders();
-    static bool addLinkedFolder (const juce::File& folder);
-    static void removeLinkedFolder (const juce::File& folder);
+    // Layers can be added and removed (at least one stays). A removed slot is reset and hidden.
+    bool isLayerActive (int layer) const { return layerActive[layer].load(); }
+    int  activeLayerCount() const;
+    int  layerPosition (int layer) const;          // 1-based place among the active layers
+    int  addLayer();                               // returns the new slot, or -1 when full
+    bool removeLayer (int layer);
+    void ensureLayerActive (int layer);
+    std::atomic<int> structureRevision { 0 };
+
     void previewFile (const juce::File& file);
     void manualTrigger (float velocity) { manualVel.store (velocity); }
 
@@ -96,6 +101,9 @@ private:
     std::deque<SampleData::Ptr> retired;     // keeps replaced samples alive past the audio thread
     juce::String layerPaths[kLayers];
     juce::String layerNames[kLayers];
+    std::atomic<bool> layerActive[kLayers];
+    float mixTarget() const { return pReplace->load() > 0.5f ? 1.0f : pMix->load() * 0.01f; }
+    void resetLayerParams (int layer);
 
     juce::SpinLock previewLock;
     SampleData::Ptr previewData, activePreview;
@@ -111,6 +119,7 @@ private:
     std::atomic<float>* pDetail = nullptr;
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pMix = nullptr;
+    std::atomic<float>* pReplace = nullptr;
     std::atomic<float>* pLvl[kLayers] {};
     std::atomic<float>* pPan[kLayers] {};
     std::atomic<float>* pTune[kLayers] {};

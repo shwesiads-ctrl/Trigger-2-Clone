@@ -11,22 +11,20 @@ and plays up to four sample layers in its place, or blended with the original.
   - *Detail* controls how easily a new hit is detected on top of the previous hit's tail (rolls, ghost notes).
   - *Input Volume* is applied before detection, so a hotter input finds quieter hits.
 - **Velocity**: louder hits play their samples louder.
-- **Four sample layers**, each with level fader, pan, tune (+/- 12 semitones), Solo, Mute and polarity (Ø).
-  - **Double-click a layer's title** to give it your own name (saved with the project). Unnamed layers show Layer 1 to 4; the box under the fader shows the loaded file.
-- **Mix**: 0 % is the original drums only, 100 % is the samples only. Output Volume is the final gain.
+- **Sample layers** (up to 8, scroll sideways when there are more than four), each with level fader, pan, tune (+/- 12 semitones), Solo, Mute and polarity (Ø).
+  - **ADD LAYER** adds a fader. The **×** on a layer removes it (one layer always stays).
+  - **Click a layer's title** (the pencil) to give it your own name. It is saved with the project. Unnamed layers are called Layer 1, 2, 3 ...
+- **REPLACE ORIGINAL** (on by default): the original drum is removed and only your samples play. Switch it off to blend the original with the samples; the **Mix** knob then sets the balance (0 % original only, 100 % samples only). Output Volume is the final gain.
 - **Waveform and meters**: the last two seconds of input with a marker on every detected hit.
 - **TRIGGER button** plays the layers without any input, handy for checking your samples.
 - **Library** (left side)
   - Built-in kicks, snares and toms are created the first time the plugin loads. They are modelled sounds (pitch-dropping shell, overtones, stick transient, snare wires, room), not recordings. Import your own samples for real-kit tone.
   - **IMPORT TO MY LIBRARY** copies WAV, MP3, FLAC, OGG, AIFF and M4A files into your library.
-  - **Folders**: **+ FOLDER** links any folder on your computer into the library (orange folder, files stay where they are). **NEW** makes a folder inside My Library (or inside the selected folder). **REMOVE** unlinks a linked folder, or moves a folder you made to the Trash. Right-click a folder or file for the same actions.
   - **Drag and drop**
     - Drag a sample from the library onto a layer, or drag one layer's sample onto another layer to copy it.
-    - Drop files from your computer onto a layer, onto the library, or onto a folder in the library (files are copied in).
-    - Drop a whole folder onto the library to link it.
-    - Drag a sample onto another folder to move it (inside My Library) or copy it.
+    - Drop audio files from your computer onto a layer, or onto the library to copy them into My Library.
   - Click a file to hear it. Double-click it to load it into the first empty layer.
-  - Right-click a layer's file box to empty the layer.
+  - Right-click a layer's file box to empty the layer. Right-click a file in My Library to remove it.
   - The PRESETS tab loads a few starting points.
 - Settings and the loaded sample files are saved with your DAW project.
 - The window can be resized.

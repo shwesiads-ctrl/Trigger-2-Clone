@@ -27,6 +27,9 @@ BTriggerProcessor::BTriggerProcessor()
     pDetail  = apvts.getRawParameterValue ("detail");
     pOutGain = apvts.getRawParameterValue ("outGain");
     pMix     = apvts.getRawParameterValue ("mix");
+    pReplace = apvts.getRawParameterValue ("replace");
+    for (int l = 0; l < kLayers; ++l)
+        layerActive[l].store (l < 4);
     for (int l = 0; l < kLayers; ++l)
     {
         pLvl[l]   = apvts.getRawParameterValue (BT::lvlId (l));
@@ -128,7 +131,7 @@ void BTriggerProcessor::clearLayer (int layer)
 
 juce::String BTriggerProcessor::layerDisplayName (int layer) const
 {
-    return layerNames[layer].isNotEmpty() ? layerNames[layer] : "Layer " + juce::String (layer + 1);
+    return layerNames[layer].isNotEmpty() ? layerNames[layer] : "Layer " + juce::String (layerPosition (layer));
 }
 
 void BTriggerProcessor::setLayerName (int layer, const juce::String& name)
@@ -137,45 +140,67 @@ void BTriggerProcessor::setLayerName (int layer, const juce::String& name)
         layerNames[layer] = name.trim().substring (0, 32);
 }
 
-static juce::File linkedFoldersFile()
+int BTriggerProcessor::activeLayerCount() const
 {
-    return BTriggerProcessor::libraryRoot().getChildFile ("linked_folders.txt");
+    int n = 0;
+    for (int l = 0; l < kLayers; ++l)
+        n += layerActive[l].load() ? 1 : 0;
+    return n;
 }
 
-juce::Array<juce::File> BTriggerProcessor::linkedFolders()
+int BTriggerProcessor::layerPosition (int layer) const
 {
-    juce::Array<juce::File> result;
-    juce::StringArray lines;
-    lines.addLines (linkedFoldersFile().loadFileAsString());
-    for (const auto& line : lines)
-    {
-        const juce::File f (line.trim());
-        if (line.trim().isNotEmpty() && f.isDirectory())
-            result.addIfNotAlreadyThere (f);
-    }
-    return result;
+    int pos = 0;
+    for (int l = 0; l <= layer && l < kLayers; ++l)
+        pos += layerActive[l].load() ? 1 : 0;
+    return juce::jmax (1, pos);
 }
 
-bool BTriggerProcessor::addLinkedFolder (const juce::File& folder)
+void BTriggerProcessor::resetLayerParams (int layer)
 {
-    if (! folder.isDirectory() || folder.isAChildOf (libraryRoot()) || folder == libraryRoot())
+    const juce::String ids[] = { BT::lvlId (layer), BT::panId (layer), BT::tuneId (layer),
+                                 BT::muteId (layer), BT::soloId (layer), BT::phaseId (layer) };
+    for (const auto& id : ids)
+        if (auto* prm = apvts.getParameter (id))
+            prm->setValueNotifyingHost (prm->getDefaultValue());
+}
+
+int BTriggerProcessor::addLayer()
+{
+    for (int l = 0; l < kLayers; ++l)
+        if (! layerActive[l].load())
+        {
+            clearLayer (l);
+            layerNames[l] = {};
+            resetLayerParams (l);
+            if (auto* prm = apvts.getParameter (BT::lvlId (l)))
+                prm->setValueNotifyingHost (prm->convertTo0to1 (0.0f));   // new layers start at 0 dB
+            layerActive[l].store (true);
+            ++structureRevision;
+            return l;
+        }
+    return -1;
+}
+
+bool BTriggerProcessor::removeLayer (int layer)
+{
+    if (layer < 0 || layer >= kLayers || ! layerActive[layer].load() || activeLayerCount() <= 1)
         return false;
-    auto list = linkedFolders();
-    list.addIfNotAlreadyThere (folder);
-    juce::StringArray lines;
-    for (const auto& f : list)
-        lines.add (f.getFullPathName());
-    return linkedFoldersFile().replaceWithText (lines.joinIntoString ("\n"));
+    layerActive[layer].store (false);
+    clearLayer (layer);
+    layerNames[layer] = {};
+    resetLayerParams (layer);
+    ++structureRevision;
+    return true;
 }
 
-void BTriggerProcessor::removeLinkedFolder (const juce::File& folder)
+void BTriggerProcessor::ensureLayerActive (int layer)
 {
-    auto list = linkedFolders();
-    list.removeFirstMatchingValue (folder);
-    juce::StringArray lines;
-    for (const auto& f : list)
-        lines.add (f.getFullPathName());
-    linkedFoldersFile().replaceWithText (lines.joinIntoString ("\n"));
+    if (layer >= 0 && layer < kLayers && ! layerActive[layer].load())
+    {
+        layerActive[layer].store (true);
+        ++structureRevision;
+    }
 }
 
 juce::String BTriggerProcessor::layerFileName (int layer) const
@@ -220,6 +245,7 @@ void BTriggerProcessor::getStateInformation (juce::MemoryBlock& dest)
     {
         state.setProperty ("layer" + juce::String (l), layerPaths[l], nullptr);
         state.setProperty ("name" + juce::String (l), layerNames[l], nullptr);
+        state.setProperty ("active" + juce::String (l), layerActive[l].load(), nullptr);
     }
 
     if (auto xml = state.createXml())
@@ -238,12 +264,14 @@ void BTriggerProcessor::setStateInformation (const void* data, int size)
     for (int l = 0; l < kLayers; ++l)
     {
         layerNames[l] = tree.getProperty ("name" + juce::String (l)).toString();
+        layerActive[l].store (tree.hasProperty ("active" + juce::String (l)) ? (bool) tree.getProperty ("active" + juce::String (l)) : l < 4);
         const juce::String path = tree.getProperty ("layer" + juce::String (l)).toString();
         if (path.isEmpty())
             clearLayer (l);
         else if (juce::File (path).existsAsFile())
             loadLayerFile (l, juce::File (path));
     }
+    ++structureRevision;
 }
 
 // ------------------------------------------------------------------ audio
@@ -279,7 +307,7 @@ void BTriggerProcessor::prepareToPlay (double sr, int)
 
     smMix.reset (sr, 0.02);
     smOut.reset (sr, 0.02);
-    smMix.setCurrentAndTargetValue (pMix->load() * 0.01f);
+    smMix.setCurrentAndTargetValue (mixTarget());
     smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (pOutGain->load()));
     previewOn = false;
     previewSeen = previewSerial.load();
@@ -312,7 +340,7 @@ void BTriggerProcessor::updateLayerCache()
 {
     bool anySolo = false;
     for (int l = 0; l < kLayers; ++l)
-        if (pSolo[l]->load() > 0.5f)
+        if (layerActive[l].load() && pSolo[l]->load() > 0.5f)
             anySolo = true;
 
     for (int l = 0; l < kLayers; ++l)
@@ -327,7 +355,7 @@ void BTriggerProcessor::updateLayerCache()
         balL[l] = pan > 0.0f ? 1.0f - pan : 1.0f;
         balR[l] = pan < 0.0f ? 1.0f + pan : 1.0f;
         layerRatio[l] = std::pow (2.0f, pTune[l]->load() / 12.0f);
-        layerEnabled[l] = ! mute && (! anySolo || solo) && activeSample[l].get() != nullptr;
+        layerEnabled[l] = layerActive[l].load() && ! mute && (! anySolo || solo) && activeSample[l].get() != nullptr;
     }
 }
 
@@ -386,7 +414,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     // How far a new peak must rise above the previous hit's decaying tail to count as a new hit.
     // Higher detail picks up smaller rises (rolls, ghost notes).
     const float rise = juce::jmap (pDetail->load(), 0.0f, 100.0f, 3.0f, 1.6f);
-    smMix.setTargetValue (pMix->load() * 0.01f);
+    smMix.setTargetValue (mixTarget());
     smOut.setTargetValue (juce::Decibels::decibelsToGain (pOutGain->load()));
 
     float* ch[2] = { buffer.getWritePointer (0), nch > 1 ? buffer.getWritePointer (1) : nullptr };

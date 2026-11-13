@@ -39,6 +39,16 @@ public:
         trigBtn.setBounds (542, 259, 120, 26);
         trigBtn.onClick = [this] { proc.manualTrigger (0.85f); };
 
+        // REPLACE: on = the original drum is removed and only the samples play. Off = blend using MIX.
+        addAndMakeVisible (replaceBtn);
+        replaceBtn.setClickingTogglesState (true);
+        replaceBtn.setBounds (372, 259, 150, 26);
+        replaceAtt = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (vt, "replace", replaceBtn);
+
+        addAndMakeVisible (addLayerBtn);
+        addLayerBtn.setBounds (682, 259, 150, 26);
+        addLayerBtn.onClick = [this] { proc.addLayer(); };
+
         // detection knobs
         kSens.setup (*this, vt, "sens", kOrange, [] (double v) { return String ((int) std::round (v)); });
         kRetr.setup (*this, vt, "retrig", kOrange, [] (double v) { return String ((int) std::round (v)) + " ms"; });
@@ -61,13 +71,14 @@ public:
         kMix.slider.setBounds (1099, 216, 30, 30);
         kMix.pill.setBounds (1081, 250, 66, 20);
 
-        // sample layers
-        for (int i = 0; i < BTriggerProcessor::kLayers; ++i)
-        {
-            strips[i] = std::make_unique<LayerStrip> (proc, i);
-            addAndMakeVisible (*strips[i]);
-            strips[i]->setBounds (243 + i * 231, 290, 225, 224);
-        }
+        // sample layers: a scrolling row, so more than four layers still fit
+        addAndMakeVisible (stripView);
+        stripView.setBounds (243, 290, 918, 232);
+        stripView.setViewedComponent (&stripHolder, false);
+        stripView.setScrollBarsShown (false, true);
+        stripView.setScrollBarThickness (8);
+        stripView.setColour (ScrollBar::thumbColourId, Colours::white.withAlpha (0.8f));
+        rebuildStrips();
 
         startTimerHz (30);
     }
@@ -126,6 +137,45 @@ private:
                 if (s != nullptr)
                     s->repaint();
         }
+
+        const int srev = proc.structureRevision.load();
+        if (srev != seenStructure)
+            rebuildStrips();
+
+        const bool replace = replaceBtn.getToggleState();
+        const float a = replace ? 0.4f : 1.0f;
+        if (kMix.slider.getAlpha() != a)
+        {
+            kMix.slider.setAlpha (a);
+            kMix.pill.setAlpha (a);
+            kMix.slider.setEnabled (! replace);
+        }
+        addLayerBtn.setEnabled (proc.activeLayerCount() < BTriggerProcessor::kLayers);
+    }
+
+    void rebuildStrips()
+    {
+        seenStructure = proc.structureRevision.load();
+        const int keepX = stripView.getViewPositionX();
+        strips.clear();
+
+        int n = 0;
+        for (int slot = 0; slot < BTriggerProcessor::kLayers; ++slot)
+        {
+            if (! proc.isLayerActive (slot))
+                continue;
+            auto strip = std::make_unique<LayerStrip> (proc, slot);
+            strip->setBounds (n * 231, 0, 225, 224);
+            strip->onRemove = [this, slot] { proc.removeLayer (slot); };
+            stripHolder.addAndMakeVisible (*strip);
+            strips.push_back (std::move (strip));
+            ++n;
+        }
+        for (auto& s : strips)
+            s->setRemovable (n > 1);
+
+        stripHolder.setSize (jmax (918, n * 231 - 6), 224);
+        stripView.setViewPosition (jmin (keepX, jmax (0, stripHolder.getWidth() - 918)), 0);
     }
 
     BTriggerProcessor& proc;
@@ -133,9 +183,13 @@ private:
     LedMeter inMeter, outMeter;
     WaveView wave;
     TextButton trigBtn { String::fromUTF8 ("\xe2\x96\xb6 TRIGGER") };
+    TextButton replaceBtn { "REPLACE ORIGINAL" }, addLayerBtn { String::fromUTF8 ("\xef\xbc\x8b ADD LAYER") };
+    std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> replaceAtt;
     KnobUnit kIn, kSens, kRetr, kDet, kOut, kMix;
-    std::unique_ptr<LayerStrip> strips[BTriggerProcessor::kLayers];
-    int seenRevision = -1;
+    Viewport stripView;
+    Component stripHolder;
+    std::vector<std::unique_ptr<LayerStrip>> strips;
+    int seenRevision = -1, seenStructure = -1;
 };
 
 // ----------------------------------------------------------------------------------------------
