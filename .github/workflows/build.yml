@@ -1,0 +1,37 @@
+name: Build B Trigger
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+            extra: ""
+          - os: macos-latest
+            name: macOS
+            extra: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.extra }}
+
+      - name: Build VST3 and Standalone
+        run: cmake --build build --config Release --parallel
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: B-Trigger-${{ matrix.name }}
+          path: |
+            build/BTrigger_artefacts/Release/VST3
+            build/BTrigger_artefacts/Release/Standalone
