@@ -17,6 +17,8 @@ using ButtonAttachment = AudioProcessorValueTreeState::ButtonAttachment;
 inline const Colour kLime   = Colour (0xffc9f23c);
 inline const Colour kGreen  = Colour (0xff9fd321);
 inline const Colour kOrange = Colour (0xfff0661c);
+inline const Colour kRed    = Colour (0xffe14b45);   // the input, as the detector hears it
+inline const Colour kBlue   = Colour (0xff57a8e8);   // the triggered sample
 inline const Colour kInk    = Colour (0xff2b2a22);
 inline const Colour kWell   = Colour (0xff2a2e20);
 
@@ -285,21 +287,22 @@ public:
     // Window length in ms: fully turned up 400 ms, fully turned down 3 ms (about 130 samples), logarithmic.
     float windowMs() const { return 3.0f * std::pow (400.0f / 3.0f, (float) zoom.getValue()); }
 
-    void resized() override { zoom.setBounds (10, 8, 34, 34); }
+    void resized() override { zoom.setBounds (10, 8, 30, 30); }
 
     void mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w) override
     {
         zoom.setValue (jlimit (0.0, 1.0, zoom.getValue() + (double) w.deltaY * 0.25), sendNotificationSync);
     }
 
-    // A scrolling waveform drawn from the raw input samples, so the ZOOM knob can show anything from the last
-    // 0.4 s down to single samples. Orange markers are the trigger points; the corner readout is the last hit.
+    // Red is what the trigger detector hears (the input through the low cut and high cut), blue is the sample
+    // it plays. The white lines are the sensitivity threshold, and a blue line marks every trigger.
     void paint (Graphics& g) override
     {
         const auto b = getLocalBounds().toFloat();
-        g.setGradientFill (ColourGradient (Colour (0xff3b4029), b.getCentreX(), b.getCentreY() * 0.9f,
-                                           Colour (0xff272b1d), b.getX(), b.getY(), true));
+        g.setColour (Colour (0xff17181a));
         g.fillRoundedRectangle (b, 20.0f);
+        g.setColour (Colour (0xff202227));
+        g.drawRoundedRectangle (b.reduced (2.0f), 18.0f, 1.0f);
 
         auto area = b.reduced (14.0f, 14.0f);
         auto stats = area.removeFromTop (22.0f);
@@ -315,7 +318,8 @@ public:
         const juce::int64 first = now - n;
         const float pxPerSample = area.getWidth() / (float) n;
         auto xOf = [&] (juce::int64 idx) { return area.getX() + (float) (idx - first) * pxPerSample; };
-        auto at = [&] (juce::int64 idx) { return idx < 0 ? 0.0f : proc.rawHist[idx & (BTriggerProcessor::kRaw - 1)].load (std::memory_order_relaxed); };
+        auto in  = [&] (juce::int64 i) { return i < 0 ? 0.0f : proc.rawHist[i & (BTriggerProcessor::kRaw - 1)].load (std::memory_order_relaxed); };
+        auto wet = [&] (juce::int64 i) { return i < 0 ? 0.0f : proc.wetHist[i & (BTriggerProcessor::kRaw - 1)].load (std::memory_order_relaxed); };
 
         // time ruler: pick a round step that gives about 6 ticks
         {
@@ -327,104 +331,112 @@ public:
             for (float t = 0.0f; t <= ms + 0.001f; t += step)
             {
                 const float x = area.getRight() - t * 0.001f * rate * pxPerSample;
-                g.setColour (Colours::white.withAlpha (0.12f));
+                g.setColour (Colours::white.withAlpha (0.08f));
                 g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
-                g.setColour (Colours::white.withAlpha (0.65f));
+                g.setColour (Colours::white.withAlpha (0.45f));
                 const String lbl = t < 0.001f ? String ("now") : "-" + (step < 1.0f ? String (t, 1) : String ((int) std::round (t)));
                 g.drawText (lbl, Rectangle<float> (x - 18.0f, axis.getY(), 36.0f, axis.getHeight()), Justification::centred, false);
             }
         }
 
-        // amplitude: follow the loudest thing in view
+        // one scale for both waves, so they can be compared
         float peakView = 0.0f;
         {
             const int step = jmax (1, n / 4000);
             for (juce::int64 i = first; i < now; i += step)
-                peakView = jmax (peakView, std::abs (at (i)));
+                peakView = jmax (peakView, jmax (std::abs (in (i)), std::abs (wet (i))));
             smooth = jmax (peakView, smooth * 0.97f);
         }
         const float gain = smooth > 0.02f ? jmin (0.92f / smooth, 40.0f) : 1.0f;
 
-        g.setColour (Colour (0x88c9f23c));
+        g.setColour (Colours::white.withAlpha (0.10f));
         g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
 
-        const int w = jmax (1, (int) area.getWidth());
-        g.setColour (Colour (0xffd4f53a));
-        if (pxPerSample >= 0.7f)
-        {
-            // close up: join the actual samples, and mark each one
-            Path path;
-            for (juce::int64 i = first; i < now; ++i)
-            {
-                const float x = xOf (i), y = cy - jlimit (-1.0f, 1.0f, at (i) * gain) * half;
-                if (i == first) path.startNewSubPath (x, y); else path.lineTo (x, y);
-            }
-            g.strokePath (path, PathStrokeType (1.6f));
-            if (pxPerSample >= 4.0f)
-                for (juce::int64 i = first; i < now; ++i)
-                    g.fillEllipse (xOf (i) - 2.0f, cy - jlimit (-1.0f, 1.0f, at (i) * gain) * half - 2.0f, 4.0f, 4.0f);
-        }
-        else
-        {
-            for (int x = 0; x < w; ++x)
-            {
-                const juce::int64 i0 = first + (juce::int64) x * n / w, i1 = jmax (i0 + 1, first + (juce::int64) (x + 1) * n / w);
-                float lo = 0.0f, hi = 0.0f;
-                for (juce::int64 i = i0; i < i1; ++i)
-                {
-                    const float v = at (i);
-                    lo = jmin (lo, v);
-                    hi = jmax (hi, v);
-                }
-                const float yHi = cy - jlimit (-1.0f, 1.0f, hi * gain) * half;
-                const float yLo = cy - jlimit (-1.0f, 1.0f, lo * gain) * half;
-                if (yLo - yHi > 0.2f)
-                    g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
-            }
-        }
+        drawWave (g, area, cy, half, first, now, n, pxPerSample, gain, kBlue, wet);
+        drawWave (g, area, cy, half, first, now, n, pxPerSample, gain, kRed, in);
 
-        // threshold (the detector sees the signal after a high-pass, so this is a guide)
+        // sensitivity threshold
         const float sens = proc.apvts.getRawParameterValue ("sens")->load();
         const float thr = Decibels::decibelsToGain (BTriggerProcessor::thresholdDb (sens)) * gain * half;
         if (thr > 1.0f && thr < half)
         {
-            g.setColour (Colours::white.withAlpha (0.8f));
-            g.fillRect (area.getX(), cy - thr - 0.75f, area.getWidth(), 1.5f);
-            g.fillRect (area.getX(), cy + thr - 0.75f, area.getWidth(), 1.5f);
+            g.setColour (Colours::white.withAlpha (0.65f));
+            g.fillRect (area.getX(), cy - thr - 0.5f, area.getWidth(), 1.0f);
+            g.fillRect (area.getX(), cy + thr - 0.5f, area.getWidth(), 1.0f);
         }
 
         // trigger points
-        g.setColour (kOrange);
         for (int k = 0; k < BTriggerProcessor::kHits; ++k)
         {
             const auto hp = proc.hitPos[k].load();
             if (hp < first || hp >= now)
                 continue;
             const float x = xOf (hp);
-            g.fillRect (x - 1.0f, area.getY() - 4.0f, 2.0f, area.getHeight() + 8.0f);
-            Path t;
-            t.addTriangle (x - 6.0f, area.getY() - 8.0f, x + 6.0f, area.getY() - 8.0f, x, area.getY() + 1.0f);
-            t.addTriangle (x - 6.0f, area.getBottom() + 8.0f, x + 6.0f, area.getBottom() + 8.0f, x, area.getBottom() - 1.0f);
-            g.fillPath (t);
+            g.setColour (kRed.withAlpha (0.55f));
+            g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
+            g.setColour (kBlue);
+            const float xs = xOf (hp + (juce::int64) (0.0015f * rate));   // the sample starts after the detect window
+            g.fillRect (xs - 0.5f, area.getY(), 1.0f, area.getHeight());
         }
 
-        // readouts
-        g.setColour (Colours::white.withAlpha (0.9f));
-        g.setFont (bFont (11.5f));
-        g.drawText ("ZOOM " + (ms < 10.0f ? String (ms, 1) : String ((int) std::round (ms))) + " ms", stats.withTrimmedLeft (34.0f),
-                    Justification::centredLeft, false);
-        if (proc.hitRev.load() > 0)
-            g.drawText ("LAST HIT   PEAK " + String (Decibels::gainToDecibels (proc.hitPeak.load(), -90.0f), 1) + " dB     RISE "
-                            + String (proc.hitAttackMs.load(), 2) + " ms",
-                        stats, Justification::centredRight, false);
-        else
-            g.drawText ("Hit a drum or press TRIGGER", stats, Justification::centredRight, false);
+        // the sample this is triggering, like a clip name
+        String name;
+        for (int l = 0; l < BTriggerProcessor::kLayers && name.isEmpty(); ++l)
+            if (proc.isLayerActive (l))
+                name = proc.layerFileName (l);
+        g.setColour (Colours::white.withAlpha (0.45f));
+        g.setFont (bFont (12.0f));
+        g.drawText (name, stats.withTrimmedLeft (30.0f), Justification::centredLeft, true);
 
-        g.setColour (Colours::white.withAlpha (0.35f));
-        g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
+        g.setColour (Colours::white.withAlpha (0.55f));
+        g.setFont (bFont (11.0f));
+        String right = (ms < 10.0f ? String (ms, 1) : String ((int) std::round (ms))) + " ms";
+        if (proc.hitRev.load() > 0)
+            right = "PEAK " + String (Decibels::gainToDecibels (proc.hitPeak.load(), -90.0f), 1) + " dB    RISE "
+                    + String (proc.hitAttackMs.load(), 2) + " ms    " + right;
+        g.drawText (right, stats, Justification::centredRight, false);
     }
 
 private:
+    template <typename Fn>
+    void drawWave (Graphics& g, Rectangle<float> area, float cy, float half, juce::int64 first, juce::int64 now,
+                   int n, float pxPerSample, float gain, Colour colour, Fn&& get)
+    {
+        g.setColour (colour);
+        if (pxPerSample >= 0.7f)
+        {
+            Path path;
+            for (juce::int64 i = first; i < now; ++i)
+            {
+                const float x = area.getX() + (float) (i - first) * pxPerSample;
+                const float y = cy - jlimit (-1.0f, 1.0f, get (i) * gain) * half;
+                if (i == first) path.startNewSubPath (x, y); else path.lineTo (x, y);
+            }
+            g.strokePath (path, PathStrokeType (1.4f));
+            if (pxPerSample >= 4.0f)
+                for (juce::int64 i = first; i < now; ++i)
+                    g.fillEllipse (area.getX() + (float) (i - first) * pxPerSample - 1.8f,
+                                   cy - jlimit (-1.0f, 1.0f, get (i) * gain) * half - 1.8f, 3.6f, 3.6f);
+            return;
+        }
+        const int w = jmax (1, (int) area.getWidth());
+        for (int x = 0; x < w; ++x)
+        {
+            const juce::int64 i0 = first + (juce::int64) x * n / w, i1 = jmax (i0 + 1, first + (juce::int64) (x + 1) * n / w);
+            float lo = 0.0f, hi = 0.0f;
+            for (juce::int64 i = i0; i < i1; ++i)
+            {
+                const float v = get (i);
+                lo = jmin (lo, v);
+                hi = jmax (hi, v);
+            }
+            const float yHi = cy - jlimit (-1.0f, 1.0f, hi * gain) * half;
+            const float yLo = cy - jlimit (-1.0f, 1.0f, lo * gain) * half;
+            if (yLo - yHi > 0.2f)
+                g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
+        }
+    }
+
     BTriggerProcessor& proc;
     Slider zoom;
     float smooth = 0.0f;

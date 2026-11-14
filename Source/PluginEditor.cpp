@@ -86,28 +86,41 @@ public:
 
         // input
         basicPage.addAndMakeVisible (inMeter);
-        inMeter.setBounds (251, 38, 68, 128);
+        inMeter.setBounds (244, 40, 68, 112);
         kIn.setup (basicPage, vt, "inGain", kGreen, [] (double v) { return String (v, 2) + " dB"; });
-        kIn.slider.setBounds (268, 188, 34, 34);
-        kIn.pill.setBounds (252, 226, 66, 20);
+        kIn.slider.setBounds (263, 174, 30, 30);
+        kIn.pill.setBounds (245, 208, 66, 20);
+
+        // the detection band and crosstalk suppression, beside the waveform
+        auto hz = [] (double v) { return v >= 1000.0 ? String (v / 1000.0, 1) + " kHz" : String ((int) std::round (v)) + " Hz"; };
+        auto pct = [] (double v) { return String ((int) std::round (v)) + "%"; };
+        kLow.setup (basicPage, vt, "lowcut", kOrange, hz);
+        kHigh.setup (basicPage, vt, "highcut", kOrange, hz);
+        kSup.setup (basicPage, vt, "suppress", kOrange, pct);
+        KnobUnit* det[3] = { &kLow, &kHigh, &kSup };
+        for (int r = 0; r < 3; ++r)
+        {
+            det[r]->slider.setBounds (339, 36 + r * 76, 30, 30);
+            det[r]->pill.setBounds (322, 68 + r * 76, 64, 20);
+        }
 
         // waveform and trigger button
         basicPage.addAndMakeVisible (wave);
-        wave.setBounds (336, 22, 532, 232);
+        wave.setBounds (400, 22, 468, 232);
 
         basicPage.addAndMakeVisible (trigBtn);
         trigBtn.getProperties().set ("primary", true);
-        trigBtn.setBounds (542, 259, 120, 26);
+        trigBtn.setBounds (574, 259, 120, 26);
         trigBtn.onClick = [this] { proc.manualTrigger (0.85f); };
 
         // REPLACE: on = the original drum is removed and only the samples play. Off = blend using MIX.
         basicPage.addAndMakeVisible (replaceBtn);
         replaceBtn.setClickingTogglesState (true);
-        replaceBtn.setBounds (372, 259, 150, 26);
+        replaceBtn.setBounds (404, 259, 150, 26);
         replaceAtt = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (vt, "replace", replaceBtn);
 
         basicPage.addAndMakeVisible (addLayerBtn);
-        addLayerBtn.setBounds (682, 259, 150, 26);
+        addLayerBtn.setBounds (714, 259, 150, 26);
         addLayerBtn.onClick = [this] { proc.addLayer(); };
 
         // detection knobs
@@ -173,16 +186,19 @@ public:
 
     void paintBasic (juce::Graphics& g)
     {
-        drawGlass (g, { 240.0f, 10.0f, 90.0f, 254.0f }, 20.0f);
+        drawGlass (g, { 240.0f, 10.0f, 152.0f, 254.0f }, 20.0f);
         drawGlass (g, { 1066.0f, 10.0f, 96.0f, 272.0f }, 20.0f);
 
         g.setColour (kInk);
         g.setFont (bFont (16.0f));
-        g.drawText ("INPUT", 240, 14, 90, 22, Justification::centred, false);
+        g.drawText ("INPUT", 240, 14, 76, 22, Justification::centred, false);
         g.drawText ("OUTPUT", 1066, 14, 96, 22, Justification::centred, false);
 
         g.setFont (bFont (12.0f));
-        g.drawText ("VOLUME", 240, 170, 90, 16, Justification::centred, false);
+        g.drawText ("VOLUME", 240, 156, 76, 16, Justification::centred, false);
+        const char* dets[3] = { "LOW CUT", "HIGH CUT", "SUPPRESS" };
+        for (int r = 0; r < 3; ++r)
+            g.drawText (dets[r], 316, 20 + r * 76, 76, 14, Justification::centred, false);
         g.drawText ("VOLUME", 1066, 122, 96, 16, Justification::centred, false);
         g.drawText ("MIX", 1066, 198, 96, 16, Justification::centred, false);
 
@@ -304,7 +320,7 @@ private:
     TextButton trigBtn { String::fromUTF8 ("\xe2\x96\xb6 TRIGGER") };
     TextButton replaceBtn { "REPLACE ORIGINAL" }, addLayerBtn { String::fromUTF8 ("\xef\xbc\x8b ADD LAYER") };
     std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> replaceAtt;
-    KnobUnit kIn, kSens, kRetr, kDet, kOut, kMix;
+    KnobUnit kIn, kSens, kRetr, kDet, kOut, kMix, kLow, kHigh, kSup;
     Viewport stripView;
     Component stripHolder;
     std::vector<std::unique_ptr<LayerStrip>> strips;

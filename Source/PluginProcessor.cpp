@@ -17,7 +17,10 @@ BTriggerProcessor::BTriggerProcessor()
         outPeak[c].store (0.0f);
     }
     for (int i = 0; i < kRaw; ++i)
+    {
         rawHist[i].store (0.0f);
+        wetHist[i].store (0.0f);
+    }
     for (int i = 0; i < kHits; ++i)
         hitPos[i].store (-1);
     for (int i = 0; i < kDetailLen; ++i)
@@ -32,6 +35,9 @@ BTriggerProcessor::BTriggerProcessor()
     pSens    = apvts.getRawParameterValue ("sens");
     pRetrig  = apvts.getRawParameterValue ("retrig");
     pDetail  = apvts.getRawParameterValue ("detail");
+    pLowCut  = apvts.getRawParameterValue ("lowcut");
+    pHighCut = apvts.getRawParameterValue ("highcut");
+    pSuppress = apvts.getRawParameterValue ("suppress");
     pOutGain = apvts.getRawParameterValue ("outGain");
     pMix     = apvts.getRawParameterValue ("mix");
     pReplace = apvts.getRawParameterValue ("replace");
@@ -416,12 +422,14 @@ void BTriggerProcessor::prepareToPlay (double sr, int)
 
     hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 80.0f / (float) sr);
     envRelease = std::exp (-1.0f / (0.03f * (float) sr));
+    supDecay = std::exp (-1.0f / (0.25f * (float) sr));      // the suppression lift fades over about 250 ms
 
     for (auto& d : dryDelay)
         d.assign ((size_t) winSamples, 0.0f);
     dryPos = 0;
 
     hpState = env = winPeak = 0.0f;
+    lcState[0] = lcState[1] = hcState[0] = hcState[1] = supLevel = 0.0f;
     windowLeft = cooldown = 0;
     armed = true;
     for (auto& layer : voices)
@@ -531,7 +539,7 @@ void BTriggerProcessor::startCapture (float thr)
 {
     {
         const int hp = hitPosHead.load();
-        hitPos[hp].store (rawPos - 1);
+        hitPos[hp].store (rawPos);
         hitPosHead.store ((hp + 1) % kHits);
     }
     if (capLeft > 0)
@@ -582,6 +590,13 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     const float thrLin = juce::Decibels::decibelsToGain (thresholdDb (pSens->load()));
     const int retrigSamples = (int) (pRetrig->load() * 0.001 * sampleRate);
     const float rearm = juce::jmap (pDetail->load(), 0.0f, 100.0f, 0.25f, 0.85f);
+
+    // the detector listens through a low cut and a high cut, so bleed from other drums can be filtered out
+    const float lcHz = juce::jmax (20.0f, pLowCut->load());
+    const float hcHz = juce::jmin (pHighCut->load(), (float) sampleRate * 0.45f);
+    lcCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * lcHz / (float) sampleRate);
+    hcCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hcHz / (float) sampleRate);
+    const float supAmt = pSuppress->load() * 0.01f;
     // How far a new peak must rise above the previous hit's decaying tail to count as a new hit.
     // Higher detail picks up smaller rises (rolls, ghost notes).
     const float rise = juce::jmap (pDetail->load(), 0.0f, 100.0f, 3.0f, 1.6f);
@@ -613,16 +628,23 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         // ---- transient detection
         const float mono = 0.5f * (inL + inR) * inGain;
-        hpState += hpCoef * (mono - hpState);
-        const float det = std::abs (mono - hpState);
+        // two one-pole stages each, so the low cut and high cut are steep enough to reject bleed
+        lcState[0] += lcCoef * (mono - lcState[0]);
+        const float hp1 = mono - lcState[0];
+        lcState[1] += lcCoef * (hp1 - lcState[1]);
+        const float hp2 = hp1 - lcState[1];
+        hcState[0] += hcCoef * (hp2 - hcState[0]);
+        hcState[1] += hcCoef * (hcState[0] - hcState[1]);
+        const float detSig = hcState[1];
+        const float det = std::abs (detSig);
         const float envPrev = env;
         env = juce::jmax (det, env * envRelease);
 
         mInL = juce::jmax (mInL, std::abs (inL * inGain));
         mInR = juce::jmax (mInR, std::abs (inR * inGain));
         colMax = juce::jmax (colMax, std::abs (mono));
-        rawHist[rawPos & (kRaw - 1)].store (mono, std::memory_order_relaxed);
-        ++rawPos;
+        rawHist[rawPos & (kRaw - 1)].store (detSig, std::memory_order_relaxed);
+        supLevel *= supDecay;
 
         ring[ringPos] = mono;
         ringPos = (ringPos + 1) & (kRing - 1);
@@ -641,9 +663,10 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
                 markPending = true;
                 armed = false;
                 cooldown = retrigSamples;
+                supLevel = juce::jmax (supLevel, winPeak * supAmt);
             }
         }
-        else if (cooldown <= 0 && det >= thrLin && (armed || det >= envPrev * rise))
+        else if (cooldown <= 0 && det >= juce::jmax (thrLin, supLevel) && (armed || det >= envPrev * rise))
         {
             windowLeft = winSamples;
             winPeak = det;
@@ -716,6 +739,9 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         }
 
         fx.process (wetL, wetR);                       // gate, EQ, compressor, delay, reverb on the samples
+
+        wetHist[rawPos & (kRaw - 1)].store (0.5f * (wetL + wetR), std::memory_order_relaxed);
+        ++rawPos;
 
         const float mix = smMix.getNextValue();
         const float og = smOut.getNextValue();

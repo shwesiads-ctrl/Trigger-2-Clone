@@ -95,7 +95,8 @@ public:
     // Raw input history for the scrolling waveform: every sample of the last ~0.7 s, so the display can zoom
     // from the whole window down to individual samples.
     static constexpr int kRaw = 65536, kHits = 64;
-    std::atomic<float> rawHist[kRaw];
+    std::atomic<float> rawHist[kRaw];      // the detection signal (what the threshold is compared against)
+    std::atomic<float> wetHist[kRaw];      // the triggered samples, so both can be drawn on top of each other
     std::atomic<juce::int64> rawCount { 0 };          // total samples written so far
     std::atomic<juce::int64> hitPos[kHits];           // sample index of each recent trigger point (-1 = none)
     std::atomic<int> hitPosHead { 0 };
@@ -156,6 +157,9 @@ private:
     std::atomic<float>* pInGain = nullptr;
     std::atomic<float>* pSens = nullptr;
     std::atomic<float>* pRetrig = nullptr;
+    std::atomic<float>* pLowCut = nullptr;
+    std::atomic<float>* pHighCut = nullptr;
+    std::atomic<float>* pSuppress = nullptr;
     std::atomic<float>* pDetail = nullptr;
     std::atomic<float>* pOutGain = nullptr;
     std::atomic<float>* pMix = nullptr;
@@ -175,6 +179,8 @@ private:
     double sampleRate = 44100.0;
     int winSamples = 66;
     float hpCoef = 0.01f, envRelease = 0.999f;
+    float lcState[2] { 0.0f, 0.0f }, hcState[2] { 0.0f, 0.0f }, lcCoef = 0.01f, hcCoef = 1.0f;
+    float supLevel = 0.0f, supDecay = 0.9999f;      // crosstalk suppression: threshold lift after a hit
     float hpState = 0.0f, env = 0.0f, winPeak = 0.0f;
     int windowLeft = 0, cooldown = 0;
     bool armed = true;
