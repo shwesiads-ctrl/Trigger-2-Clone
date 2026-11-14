@@ -619,12 +619,24 @@ public:
         tree.setColour (TreeView::backgroundColourId, Colours::transparentBlack);
 
         tree.onDelete = [this] { return deleteSelectedLibraryItem(); };
+        tree.onRename = [this]
+        {
+            if (auto* it = dynamic_cast<LibItem*> (tree.getSelectedItem (0)))
+                if (isDeletable (it->getFile())) { startRename (it->getFile(), false); return true; }
+            return false;
+        };
 
         addChildComponent (presetTree);
         presetTree.setRootItemVisible (false);
         presetTree.setIndentSize (14);
         presetTree.setColour (TreeView::backgroundColourId, Colours::transparentBlack);
         presetTree.onDelete = [this] { return deleteSelectedPreset(); };
+        presetTree.onRename = [this]
+        {
+            if (auto* it = dynamic_cast<PresetItem*> (presetTree.getSelectedItem (0)))
+                if (it->isUser()) { startRename (it->getFile(), true); return true; }
+            return false;
+        };
 
         addChildComponent (presetName);
         presetName.setFont (bFont (13.0f, false));
@@ -635,6 +647,17 @@ public:
         presetName.setColour (TextEditor::textColourId, kInk);
         presetName.setIndents (10, 8);
         presetName.onReturnKey = [this] { saveCurrentPreset(); };
+
+        addChildComponent (renameEd);
+        renameEd.setFont (bFont (12.5f, false));
+        renameEd.setColour (TextEditor::backgroundColourId, Colours::white);
+        renameEd.setColour (TextEditor::outlineColourId, Colour (0xffa6dc1c));
+        renameEd.setColour (TextEditor::focusedOutlineColourId, Colour (0xffa6dc1c));
+        renameEd.setColour (TextEditor::textColourId, kInk);
+        renameEd.setIndents (6, 4);
+        renameEd.onReturnKey = [this] { finishRename (true); };
+        renameEd.onEscapeKey = [this] { finishRename (false); };
+        renameEd.onFocusLost = [this] { finishRename (true); };
 
         addChildComponent (saveBtn);
         saveBtn.getProperties().set ("primary", true);
@@ -940,26 +963,9 @@ private:
     void askDelete (const File& f)
     {
         if (! isDeletable (f))
-        {
             say ("Factory sounds can't be deleted");
-            return;
-        }
-        if (! f.isDirectory())
-        {
+        else
             deleteEntry (f);
-            return;
-        }
-        SafePointer<LibraryPanel> sp (this);
-        AlertWindow::showAsync (MessageBoxOptions().withIconType (MessageBoxIconType::QuestionIcon)
-                                    .withTitle ("Delete folder")
-                                    .withMessage ("Delete \"" + f.getFileName() + "\" and everything inside it?")
-                                    .withButton ("Delete").withButton ("Cancel"),
-                                [sp, f] (int r)
-                                {
-                                    if (r == 0)
-                                        if (auto* self = sp.getComponent())
-                                            self->deleteEntry (f);
-                                });
     }
 
     bool deleteSelectedLibraryItem()
@@ -977,16 +983,82 @@ private:
     {
         PopupMenu m;
         const bool ok = isDeletable (file);
+        m.addItem (3, "Rename", ok);
         m.addItem (1, file.isDirectory() ? "Delete folder" : "Delete", ok);
         if (! ok)
-            m.addItem (2, "Factory sounds can't be deleted", false);
+            m.addItem (2, "Factory sounds can't be renamed or deleted", false);
         SafePointer<LibraryPanel> sp (this);
         m.showMenuAsync (PopupMenu::Options(), [sp, file] (int r)
                          {
-                             if (r == 1)
-                                 if (auto* self = sp.getComponent())
-                                     self->askDelete (file);
+                             if (auto* self = sp.getComponent())
+                             {
+                                 if (r == 1) self->askDelete (file);
+                                 if (r == 3) self->startRename (file, false);
+                             }
                          });
+    }
+
+    // ---- rename: a small text box laid over the row
+    void startRename (const File& f, bool preset)
+    {
+        auto& t = preset ? presetTree : tree;
+        TreeViewItem* found = nullptr;
+        const String key = preset ? "pf:" + f.getFullPathName() : f.getFullPathName();
+        for (int r = 0; r < t.getNumRowsInTree(); ++r)
+            if (auto* it = t.getItemOnRow (r))
+                if (it->getUniqueName() == key) { found = it; break; }
+        if (found == nullptr)
+            return;
+
+        renaming = f;
+        renamingPreset = preset;
+        auto rr = found->getItemPosition (true);
+        renameEd.setBounds (t.getX() + rr.getX() + 24, t.getY() + rr.getY() + 2, juce::jmax (80, t.getWidth() - rr.getX() - 30), rr.getHeight() - 4);
+        renameEd.setText (f.isDirectory() || preset ? (preset && ! f.isDirectory() ? f.getFileNameWithoutExtension() : f.getFileName())
+                                                    : f.getFileNameWithoutExtension(), dontSendNotification);
+        renameEd.setVisible (true);
+        renameEd.toFront (true);
+        renameEd.grabKeyboardFocus();
+        renameEd.selectAll();
+    }
+
+    void finishRename (bool commit)
+    {
+        if (! renameEd.isVisible())
+            return;
+        const auto text = renameEd.getText();
+        renameEd.setVisible (false);
+        if (! commit || renaming == File())
+            return;
+
+        const auto base = File::createLegalFileName (text.trim()).substring (0, 64).trim();
+        const auto f = renaming;
+        renaming = File();
+        if (base.isEmpty())
+            return;
+        const String ext = f.isDirectory() ? String() : f.getFileExtension();
+        const auto target = f.getParentDirectory().getChildFile (base + ext);
+        if (target == f)
+            return;
+        if (target.exists())
+        {
+            say ("That name is already used");
+            return;
+        }
+        if (! f.moveFileTo (target))
+        {
+            say ("Could not rename");
+            return;
+        }
+        if (renamingPreset)
+        {
+            if (proc.currentPreset == f.getFileNameWithoutExtension())
+                proc.currentPreset = base;
+            rebuildPresets();
+        }
+        else
+            rebuild();
+        say ("Renamed to " + base);
     }
 
     // ---- importing
@@ -1276,49 +1348,38 @@ private:
         return false;
     }
 
-    void askDeletePreset (const File& f)
-    {
-        if (! f.isDirectory())
-        {
-            deletePreset (f);
-            return;
-        }
-        SafePointer<LibraryPanel> sp (this);
-        AlertWindow::showAsync (MessageBoxOptions().withIconType (MessageBoxIconType::QuestionIcon)
-                                    .withTitle ("Delete folder")
-                                    .withMessage ("Delete \"" + f.getFileName() + "\" and every preset inside it?")
-                                    .withButton ("Delete").withButton ("Cancel"),
-                                [sp, f] (int r)
-                                {
-                                    if (r == 0)
-                                        if (auto* self = sp.getComponent())
-                                            self->deletePreset (f);
-                                });
-    }
+    void askDeletePreset (const File& f) { deletePreset (f); }
 
     void showPresetMenu (const PresetItem& it)
     {
         PopupMenu m;
         const bool user = it.isUser();
         if (user)
+        {
+            m.addItem (3, "Rename");
             m.addItem (1, it.getKind() == PresetItem::UserDir ? "Delete folder" : "Delete");
+        }
         else
-            m.addItem (2, "Factory presets can't be deleted", false);
+            m.addItem (2, "Factory presets can't be renamed or deleted", false);
         SafePointer<LibraryPanel> sp (this);
         const File f = it.getFile();
         m.showMenuAsync (PopupMenu::Options(), [sp, f] (int r)
                          {
-                             if (r == 1)
-                                 if (auto* self = sp.getComponent())
-                                     self->askDeletePreset (f);
+                             if (auto* self = sp.getComponent())
+                             {
+                                 if (r == 1) self->askDeletePreset (f);
+                                 if (r == 3) self->startRename (f, true);
+                             }
                          });
     }
 
     struct DeleteTree : public TreeView
     {
-        std::function<bool()> onDelete;
+        std::function<bool()> onDelete, onRename;
         bool keyPressed (const KeyPress& k) override
         {
+            if (k == KeyPress::F2Key && onRename && onRename())
+                return true;
             if ((k == KeyPress::deleteKey || k == KeyPress::backspaceKey) && onDelete && onDelete())
                 return true;
             return TreeView::keyPressed (k);
@@ -1333,6 +1394,9 @@ private:
     TextEditor presetName;
     TextButton saveBtn { "SAVE" };
     std::unique_ptr<PresetItem> presetRoot;
+    TextEditor renameEd;
+    File renaming;
+    bool renamingPreset = false;
     Label msg;
     TextButton importBtn { String::fromUTF8 ("\xef\xbc\x8b IMPORT TO MY LIBRARY") };
     std::unique_ptr<LibItem> root;
