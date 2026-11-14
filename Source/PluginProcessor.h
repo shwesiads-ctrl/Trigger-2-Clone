@@ -67,11 +67,19 @@ public:
     std::atomic<int> structureRevision { 0 };
 
     // ---- top bar: A/B snapshots, reset, Basic / Advanced page
-    std::atomic<bool> advancedPage { false };
+    std::atomic<bool> advancedPage { false };     // never saved: the plugin always opens on the Basic page
     int currentAB() const { return abSlot; }
     void selectAB (int slot);        // 0 = A, 1 = B. The first visit to B starts as a copy of A.
     void copyToOtherAB();            // copies the current settings into the other slot
     void resetAll();                 // everything back to the starting sound
+
+    // ---- presets: 100 factory presets (in code) and user presets saved as .btp files
+    static juce::File userPresetDir();
+    void applyFactoryPreset (int index);
+    bool saveUserPreset (const juce::String& name, const juce::File& folder);   // false if the name is unusable
+    bool loadUserPreset (const juce::File& file);
+    juce::String currentPreset;      // shown in the library panel
+    std::atomic<int> presetRevision { 0 };
 
     void previewFile (const juce::File& file);
     void manualTrigger (float velocity) { manualVel.store (velocity); }

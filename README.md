@@ -18,7 +18,9 @@ and plays up to four sample layers in its place, or blended with the original.
 - **Top bar**
   - **A / B**: two complete sets of settings to compare. B starts as a copy of A the first time you open it. **COPY TO B** (or **COPY TO A**) copies the current settings across. A and B are kept while the plugin window or project is open.
   - **RESET** puts every knob, layer and effect back to the starting sound (asks first).
-  - **BASIC / ADVANCED** switches the main page. The choice is saved with the project.
+  - The **Advanced page is hidden by default.** Press **Ctrl+Alt+V** (or Ctrl+Alt+click on the top bar) to show it, and again (or BACK TO BASIC) to hide it. The plugin always opens on the Basic page. Some hosts may grab Ctrl+Alt+V for themselves; the Ctrl+Alt+click works there.
+- **Library delete**: right-click (or select and press Delete) any file or folder in My Library or User Samples to delete it. Folders ask for confirmation. The Factory folder cannot be deleted.
+- **Presets tab**: a folder tree like Trigger 2. **Factory Presets** has 25 kits with 4 presets each (Kick, Snare, Tom 1, Tom 2), 100 in all. They are variations of the built-in modelled sounds (layering, tuning, EQ, compression, room, gate, echo), not recordings. **User Presets** holds your own: type a name and press SAVE (it goes into the selected user folder, or User Presets), click to load, right-click or Delete key to remove. They are saved as `.btp` files in `Documents/B Trigger/User Presets`.
 - **Advanced page**: five effects that work on the sample layers, in this order: Gate, EQ, Compressor, Delay, Reverb. Each has its own ON/OFF switch (off by default), so the starting sound is unchanged.
   - **Gate**: Threshold, Attack, Hold, Release, Range (how far the gate closes).
   - **Compressor**: Threshold, Ratio, Attack, Release, Knee, Makeup, Mix (parallel compression).

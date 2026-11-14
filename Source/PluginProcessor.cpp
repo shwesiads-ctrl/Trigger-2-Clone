@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "Presets.h"
 #include "PluginEditor.h"
 #include "FactorySamples.h"
 
@@ -250,8 +251,6 @@ void BTriggerProcessor::getStateInformation (juce::MemoryBlock& dest)
         state.setProperty ("active" + juce::String (l), layerActive[l].load(), nullptr);
     }
 
-    state.setProperty ("advanced", advancedPage.load(), nullptr);
-
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
@@ -282,8 +281,6 @@ void BTriggerProcessor::applyState (const void* data, int size, bool withMode)
         else if (juce::File (path).existsAsFile())
             loadLayerFile (l, juce::File (path));
     }
-    if (withMode)
-        advancedPage.store ((bool) tree.getProperty ("advanced", false));
     ++structureRevision;
 }
 
@@ -318,6 +315,89 @@ void BTriggerProcessor::resetAll()
     }
     loadDefaultLayers();
     ++structureRevision;
+}
+
+// ------------------------------------------------------------------ presets
+
+juce::File BTriggerProcessor::userPresetDir()
+{
+    return libraryRoot().getChildFile ("User Presets");
+}
+
+void BTriggerProcessor::applyFactoryPreset (int index)
+{
+    const auto& list = BTPresets::factory();
+    if (index < 0 || index >= (int) list.size())
+        return;
+    const auto& pr = list[(size_t) index];
+
+    for (auto* prm : getParameters())
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (prm))
+            p->setValueNotifyingHost (p->getDefaultValue());
+
+    auto set = [this] (const juce::String& id, float v)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (v));
+    };
+
+    const auto dir = FactorySamples::factoryDir (libraryRoot());
+    const int n = juce::jmin ((int) pr.layers.size(), kLayers);
+    for (int l = 0; l < kLayers; ++l)
+    {
+        layerNames[l] = {};
+        layerActive[l].store (l < n);
+        if (l < n)
+        {
+            const auto& ls = pr.layers[(size_t) l];
+            const auto f = dir.getChildFile (ls.file);
+            if (f.existsAsFile())
+            {
+                if (! (layerHasSample (l) && layerPaths[l] == f.getFullPathName()))
+                    loadLayerFile (l, f);
+            }
+            else
+                clearLayer (l);
+            set (BT::lvlId (l), ls.level);
+            set (BT::tuneId (l), ls.tune);
+            set (BT::panId (l), ls.pan * 100.0f);
+        }
+        else
+            clearLayer (l);
+    }
+    for (const auto& kv : pr.params)
+        set (kv.first, kv.second);
+
+    currentPreset = pr.name;
+    ++structureRevision;
+    ++presetRevision;
+}
+
+bool BTriggerProcessor::saveUserPreset (const juce::String& rawName, const juce::File& folder)
+{
+    const auto name = juce::File::createLegalFileName (rawName.trim()).substring (0, 48).trim();
+    if (name.isEmpty())
+        return false;
+    folder.createDirectory();
+    const auto file = folder.getChildFile (name + ".btp");
+    juce::MemoryBlock mb;
+    getStateInformation (mb);
+    if (! file.replaceWithData (mb.getData(), mb.getSize()))
+        return false;
+    currentPreset = name;
+    ++presetRevision;
+    return true;
+}
+
+bool BTriggerProcessor::loadUserPreset (const juce::File& file)
+{
+    juce::MemoryBlock mb;
+    if (! file.existsAsFile() || ! file.loadFileAsData (mb))
+        return false;
+    applyState (mb.getData(), (int) mb.getSize(), false);
+    currentPreset = file.getFileNameWithoutExtension();
+    ++presetRevision;
+    return true;
 }
 
 // ------------------------------------------------------------------ audio

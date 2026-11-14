@@ -4,6 +4,7 @@
 #include <functional>
 #include "PluginProcessor.h"
 #include "FactorySamples.h"
+#include "Presets.h"
 
 // All custom UI pieces for B Trigger: look and feel, meters, waveform, knobs, layer strips, library.
 namespace BTUI
@@ -583,25 +584,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
-struct Preset
-{
-    const char* name;
-    float sens, retrig, detail;
-    const char* files[3];
-    float lvl[3];
-};
-
-inline const Preset kPresets[] = {
-    { "Modern Kick", 46, 54, 39, { "Kick_Close.wav", "Kick_Body.wav", "Kick_Room.wav" }, { 0, -6, -12 } },
-    { "Tight Punch", 62, 30, 25, { "Kick_Punch_01.wav", "Kick_Body.wav", "Kick_Room.wav" }, { 0, -8, -18 } },
-    { "Big Room", 40, 80, 55, { "Kick_Rock_01.wav", "Kick_Body.wav", "Kick_Room.wav" }, { -2, -6, -3 } },
-    { "Metal Click", 70, 25, 60, { "Kick_Metal_01.wav", "Kick_Body.wav", "Kick_Room.wav" }, { 2, -10, -16 } },
-    { "Snare Crack", 50, 45, 45, { "Snare_Crack_01.wav", "Snare_Fat_01.wav", "" }, { 0, -6, -60 } }
-};
-inline constexpr int kNumPresets = 5;
-
-// ---------------------------------------------------------------------------------------------
-class LibraryPanel : public Component, public FileDragAndDropTarget, private ListBoxModel
+class LibraryPanel : public Component, public FileDragAndDropTarget
 {
 public:
     explicit LibraryPanel (BTriggerProcessor& p) : proc (p)
@@ -635,10 +618,27 @@ public:
         tree.setIndentSize (14);
         tree.setColour (TreeView::backgroundColourId, Colours::transparentBlack);
 
-        addChildComponent (presetList);
-        presetList.setModel (this);
-        presetList.setRowHeight (30);
-        presetList.setColour (ListBox::backgroundColourId, Colours::transparentBlack);
+        tree.onDelete = [this] { return deleteSelectedLibraryItem(); };
+
+        addChildComponent (presetTree);
+        presetTree.setRootItemVisible (false);
+        presetTree.setIndentSize (14);
+        presetTree.setColour (TreeView::backgroundColourId, Colours::transparentBlack);
+        presetTree.onDelete = [this] { return deleteSelectedPreset(); };
+
+        addChildComponent (presetName);
+        presetName.setFont (bFont (13.0f, false));
+        presetName.setTextToShowWhenEmpty ("Preset name...", kInk.withAlpha (0.6f));
+        presetName.setColour (TextEditor::backgroundColourId, Colours::white.withAlpha (0.55f));
+        presetName.setColour (TextEditor::outlineColourId, Colours::white.withAlpha (0.8f));
+        presetName.setColour (TextEditor::focusedOutlineColourId, Colours::white);
+        presetName.setColour (TextEditor::textColourId, kInk);
+        presetName.setIndents (10, 8);
+        presetName.onReturnKey = [this] { saveCurrentPreset(); };
+
+        addChildComponent (saveBtn);
+        saveBtn.getProperties().set ("primary", true);
+        saveBtn.onClick = [this] { saveCurrentPreset(); };
 
         addAndMakeVisible (msg);
         msg.setFont (bFont (10.5f));
@@ -651,7 +651,7 @@ public:
         rebuild();
     }
 
-    ~LibraryPanel() override { tree.setRootItem (nullptr); }
+    ~LibraryPanel() override { tree.setRootItem (nullptr); presetTree.setRootItem (nullptr); }
 
     void paint (Graphics& g) override
     {
@@ -678,9 +678,11 @@ public:
         tabPresets.setBounds (106, 84, 94, 34);
         search.setBounds (8, 127, 192, 34);
         tree.setBounds (8, 168, 192, 276);
-        presetList.setBounds (8, 168, 192, 276);
+        presetTree.setBounds (8, 127, 192, 317);
         msg.setBounds (12, 448, 184, 14);
         importBtn.setBounds (8, 466, 192, 34);
+        presetName.setBounds (8, 466, 118, 34);
+        saveBtn.setBounds (130, 466, 70, 34);
     }
 
     bool isInterestedInFileDrag (const StringArray& files) override { return ! files.isEmpty(); }
@@ -875,10 +877,12 @@ private:
         tree.setVisible (library);
         search.setVisible (library);
         importBtn.setVisible (library);
-        presetList.setVisible (! library);
-        msg.setVisible (true);
+        presetTree.setVisible (! library);
+        presetName.setVisible (! library);
+        saveBtn.setVisible (! library);
         if (! library)
-            presetList.updateContent();
+            rebuildPresets();
+        repaint();
     }
 
     void say (const String& text)
@@ -912,26 +916,76 @@ private:
                                    });
     }
 
-    void removeFile (const File& f)
+    // Everything in My Library and User Samples can be deleted. The built-in Factory folder never can.
+    static File userSamples() { return BTriggerProcessor::libraryRoot().getChildFile ("User Samples"); }
+
+    static bool isDeletable (const File& f)
     {
-        f.moveToTrash();
-        rebuild();
-        say ("Removed " + f.getFileName());
+        return f.isAChildOf (myLibrary()) || f.isAChildOf (userSamples());
     }
 
-    // right-click: remove a file you imported into My Library
+    void deleteEntry (const File& f)
+    {
+        if (! isDeletable (f))
+            return;
+        const String name = f.getFileName();
+        if (f.isDirectory())
+            f.deleteRecursively (true);
+        else
+            f.moveToTrash() || f.deleteFile();
+        rebuild();
+        say ("Deleted " + name);
+    }
+
+    void askDelete (const File& f)
+    {
+        if (! isDeletable (f))
+        {
+            say ("Factory sounds can't be deleted");
+            return;
+        }
+        if (! f.isDirectory())
+        {
+            deleteEntry (f);
+            return;
+        }
+        SafePointer<LibraryPanel> sp (this);
+        AlertWindow::showAsync (MessageBoxOptions().withIconType (MessageBoxIconType::QuestionIcon)
+                                    .withTitle ("Delete folder")
+                                    .withMessage ("Delete \"" + f.getFileName() + "\" and everything inside it?")
+                                    .withButton ("Delete").withButton ("Cancel"),
+                                [sp, f] (int r)
+                                {
+                                    if (r == 0)
+                                        if (auto* self = sp.getComponent())
+                                            self->deleteEntry (f);
+                                });
+    }
+
+    bool deleteSelectedLibraryItem()
+    {
+        if (auto* it = dynamic_cast<LibItem*> (tree.getSelectedItem (0)))
+        {
+            askDelete (it->getFile());
+            return true;
+        }
+        return false;
+    }
+
+    // right-click menu
     void showItemMenu (const File& file)
     {
-        if (file.isDirectory() || ! file.isAChildOf (myLibrary()))
-            return;
         PopupMenu m;
-        m.addItem (1, "Remove from My Library");
+        const bool ok = isDeletable (file);
+        m.addItem (1, file.isDirectory() ? "Delete folder" : "Delete", ok);
+        if (! ok)
+            m.addItem (2, "Factory sounds can't be deleted", false);
         SafePointer<LibraryPanel> sp (this);
         m.showMenuAsync (PopupMenu::Options(), [sp, file] (int r)
                          {
                              if (r == 1)
                                  if (auto* self = sp.getComponent())
-                                     self->removeFile (file);
+                                     self->askDelete (file);
                          });
     }
 
@@ -1002,58 +1056,283 @@ private:
             say (problem);
     }
 
-    void applyPreset (const Preset& p)
-    {
-        setParam ("sens", p.sens);
-        setParam ("retrig", p.retrig);
-        setParam ("detail", p.detail);
-        for (int i = 0; i < 3; ++i)
-        {
-            proc.ensureLayerActive (i);
-            setParam (BT::lvlId (i), p.lvl[i]);
-            if (p.files[i][0] != 0)
-                proc.loadFactoryFile (i, p.files[i]);
-            else
-                proc.clearLayer (i);
-        }
-        say (String (p.name) + " loaded");
-    }
-
     void setParam (const String& id, float value)
     {
         if (auto* prm = proc.apvts.getParameter (id))
             prm->setValueNotifyingHost (prm->convertTo0to1 (value));
     }
 
-    // ---- ListBoxModel (presets)
-    int getNumRows() override { return kNumPresets; }
-
-    void paintListBoxItem (int row, Graphics& g, int w, int h, bool selected) override
+    // ---- presets: a tree of factory kits and your own saved presets
+    class PresetItem : public TreeViewItem
     {
-        if (row < 0 || row >= kNumPresets)
-            return;
-        if (selected)
+    public:
+        enum Kind { FactoryRoot, Kit, Factory, UserRoot, UserDir, UserFile };
+
+        PresetItem (LibraryPanel& o, Kind k, const String& l, int idx = -1, const File& f = {})
+            : owner (o), kind (k), label (l), index (idx), file (f) {}
+
+        bool isGroup() const { return kind != Factory && kind != UserFile; }
+        bool mightContainSubItems() override { return isGroup(); }
+        String getUniqueName() const override
         {
-            g.setColour (Colour (0xffc4f230));
-            g.fillRoundedRectangle (1.0f, 1.0f, (float) w - 2.0f, (float) h - 2.0f, 8.0f);
+            switch (kind)
+            {
+                case FactoryRoot: return "pf";
+                case Kit:         return "pk:" + label;
+                case Factory:     return "pp:" + String (index);
+                case UserRoot:    return "pu";
+                default:          return "pf:" + file.getFullPathName();
+            }
         }
-        g.setColour (kInk);
-        g.setFont (bFont (13.0f));
-        g.drawText (kPresets[row].name, 12, 0, w - 16, h, Justification::centredLeft, true);
+        int getItemHeight() const override { return 28; }
+        File getFile() const { return file; }
+        Kind getKind() const { return kind; }
+        bool isUser() const { return kind == UserDir || kind == UserFile; }
+
+        void itemOpennessChanged (bool isNowOpen) override
+        {
+            if (isNowOpen)
+                populate();
+            else
+                clearSubItems();
+        }
+
+        void paintItem (Graphics& g, int w, int h) override
+        {
+            if (isSelected())
+            {
+                g.setColour (isGroup() ? Colours::white.withAlpha (0.35f) : Colour (0xffc4f230));
+                g.fillRoundedRectangle (1.0f, 1.0f, (float) w - 2.0f, (float) h - 2.0f, 8.0f);
+            }
+            if (isGroup())
+            {
+                g.setColour (Colour (0xffa6dc1c));
+                g.fillRoundedRectangle (3.0f, (float) h * 0.5f - 6.0f, 17.0f, 13.0f, 3.0f);
+                g.fillRoundedRectangle (3.0f, (float) h * 0.5f - 9.0f, 8.0f, 5.0f, 2.0f);
+            }
+            else
+            {
+                g.setColour (kInk);
+                g.fillEllipse (6.0f, (float) h * 0.5f - 3.0f, 6.0f, 6.0f);
+            }
+            g.setColour (kInk);
+            g.setFont (bFont (isGroup() ? 13.0f : 12.5f, isGroup()));
+            const bool current = ! isGroup() && owner.proc.currentPreset == label;
+            g.drawText (label + (current ? "  *" : ""), 26, 0, w - 28, h, Justification::centredLeft, true);
+        }
+
+        void itemClicked (const MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu())
+            {
+                owner.showPresetMenu (*this);
+                return;
+            }
+            if (isGroup())
+                setOpen (! isOpen());
+            else
+                owner.loadPreset (*this);
+        }
+
+        void itemDoubleClicked (const MouseEvent& e) override
+        {
+            if (isGroup())
+                TreeViewItem::itemDoubleClicked (e);
+        }
+
+    private:
+        void populate()
+        {
+            clearSubItems();
+            const auto& all = BTPresets::factory();
+            if (kind == FactoryRoot)
+            {
+                StringArray seen;
+                for (const auto& p : all)
+                    if (! seen.contains (p.kit))
+                    {
+                        seen.add (p.kit);
+                        addSubItem (new PresetItem (owner, Kit, p.kit));
+                    }
+            }
+            else if (kind == Kit)
+            {
+                for (int i = 0; i < (int) all.size(); ++i)
+                    if (all[(size_t) i].kit == label)
+                        addSubItem (new PresetItem (owner, Factory, all[(size_t) i].name, i));
+            }
+            else if (kind == UserRoot || kind == UserDir)
+            {
+                Array<File> dirs, files;
+                file.findChildFiles (dirs, File::findDirectories | File::ignoreHiddenFiles, false);
+                file.findChildFiles (files, File::findFiles | File::ignoreHiddenFiles, false, "*.btp");
+                auto byName = [] (const File& a, const File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; };
+                std::sort (dirs.begin(), dirs.end(), byName);
+                std::sort (files.begin(), files.end(), byName);
+                for (const auto& d : dirs)
+                    addSubItem (new PresetItem (owner, UserDir, d.getFileName(), -1, d));
+                for (const auto& f : files)
+                    addSubItem (new PresetItem (owner, UserFile, f.getFileNameWithoutExtension(), -1, f));
+            }
+        }
+
+        LibraryPanel& owner;
+        Kind kind;
+        String label;
+        int index;
+        File file;
+    };
+
+    void rebuildPresets()
+    {
+        std::unique_ptr<XmlElement> state (presetTree.getOpennessState (false));
+        presetTree.setRootItem (nullptr);
+        BTriggerProcessor::userPresetDir().createDirectory();
+        presetRoot.reset();
+        presetRoot = std::make_unique<RootItem> (*this);
+        presetTree.setRootItem (presetRoot.get());
+        presetRoot->setOpen (true);
+        if (state != nullptr)
+            presetTree.restoreOpennessState (*state, false);
+        else if (presetRoot->getNumSubItems() > 0)
+            presetRoot->getSubItem (0)->setOpen (true);
     }
 
-    void listBoxItemClicked (int row, const MouseEvent&) override
+    // invisible root: "Factory Presets" and "User Presets"
+    class RootItem : public PresetItem
     {
-        if (row >= 0 && row < kNumPresets)
-            applyPreset (kPresets[row]);
+    public:
+        explicit RootItem (LibraryPanel& o) : PresetItem (o, FactoryRoot, "root"), own (o)
+        {
+            addSubItem (new PresetItem (o, FactoryRoot, "Factory Presets"));
+            addSubItem (new PresetItem (o, UserRoot, "User Presets", -1, BTriggerProcessor::userPresetDir()));
+        }
+        String getUniqueName() const override { return "root"; }
+        void itemOpennessChanged (bool) override {}
+    private:
+        LibraryPanel& own;
+    };
+
+    void loadPreset (const PresetItem& it)
+    {
+        if (it.getKind() == PresetItem::Factory)
+            proc.applyFactoryPreset (it.getUniqueName().fromFirstOccurrenceOf (":", false, false).getIntValue());
+        else if (it.getKind() == PresetItem::UserFile)
+        {
+            if (! proc.loadUserPreset (it.getFile()))
+            {
+                say ("Could not load preset");
+                return;
+            }
+        }
+        presetTree.repaint();
+        say (proc.currentPreset + " loaded");
     }
+
+    // the folder a new preset is saved into: the selected user folder, or User Presets
+    File saveFolder()
+    {
+        if (auto* it = dynamic_cast<PresetItem*> (presetTree.getSelectedItem (0)))
+        {
+            if (it->getKind() == PresetItem::UserDir || it->getKind() == PresetItem::UserRoot)
+                return it->getFile();
+            if (it->getKind() == PresetItem::UserFile)
+                return it->getFile().getParentDirectory();
+        }
+        return BTriggerProcessor::userPresetDir();
+    }
+
+    void saveCurrentPreset()
+    {
+        const auto name = presetName.getText();
+        if (! proc.saveUserPreset (name, saveFolder()))
+        {
+            say ("Type a name for the preset first");
+            return;
+        }
+        presetName.clear();
+        rebuildPresets();
+        say ("Saved " + proc.currentPreset);
+    }
+
+    void deletePreset (const File& f)
+    {
+        if (f.isDirectory())
+            f.deleteRecursively (true);
+        else
+            f.deleteFile();
+        rebuildPresets();
+        say ("Deleted " + f.getFileNameWithoutExtension());
+    }
+
+    bool deleteSelectedPreset()
+    {
+        if (auto* it = dynamic_cast<PresetItem*> (presetTree.getSelectedItem (0)))
+            if (it->isUser())
+            {
+                askDeletePreset (it->getFile());
+                return true;
+            }
+        return false;
+    }
+
+    void askDeletePreset (const File& f)
+    {
+        if (! f.isDirectory())
+        {
+            deletePreset (f);
+            return;
+        }
+        SafePointer<LibraryPanel> sp (this);
+        AlertWindow::showAsync (MessageBoxOptions().withIconType (MessageBoxIconType::QuestionIcon)
+                                    .withTitle ("Delete folder")
+                                    .withMessage ("Delete \"" + f.getFileName() + "\" and every preset inside it?")
+                                    .withButton ("Delete").withButton ("Cancel"),
+                                [sp, f] (int r)
+                                {
+                                    if (r == 0)
+                                        if (auto* self = sp.getComponent())
+                                            self->deletePreset (f);
+                                });
+    }
+
+    void showPresetMenu (const PresetItem& it)
+    {
+        PopupMenu m;
+        const bool user = it.isUser();
+        if (user)
+            m.addItem (1, it.getKind() == PresetItem::UserDir ? "Delete folder" : "Delete");
+        else
+            m.addItem (2, "Factory presets can't be deleted", false);
+        SafePointer<LibraryPanel> sp (this);
+        const File f = it.getFile();
+        m.showMenuAsync (PopupMenu::Options(), [sp, f] (int r)
+                         {
+                             if (r == 1)
+                                 if (auto* self = sp.getComponent())
+                                     self->askDeletePreset (f);
+                         });
+    }
+
+    struct DeleteTree : public TreeView
+    {
+        std::function<bool()> onDelete;
+        bool keyPressed (const KeyPress& k) override
+        {
+            if ((k == KeyPress::deleteKey || k == KeyPress::backspaceKey) && onDelete && onDelete())
+                return true;
+            return TreeView::keyPressed (k);
+        }
+    };
 
     BTriggerProcessor& proc;
     String query;
     TextButton tabLibrary { "LIBRARY" }, tabPresets { "PRESETS" };
     TextEditor search;
-    TreeView tree;
-    ListBox presetList;
+    DeleteTree tree, presetTree;
+    TextEditor presetName;
+    TextButton saveBtn { "SAVE" };
+    std::unique_ptr<PresetItem> presetRoot;
     Label msg;
     TextButton importBtn { String::fromUTF8 ("\xef\xbc\x8b IMPORT TO MY LIBRARY") };
     std::unique_ptr<LibItem> root;

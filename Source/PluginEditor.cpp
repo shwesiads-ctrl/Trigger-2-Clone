@@ -65,16 +65,12 @@ public:
                                     });
         };
 
-        for (auto* b : { &basicBtn, &advBtn })
-        {
-            addAndMakeVisible (*b);
-            b->setRadioGroupId (102);
-            b->setClickingTogglesState (true);
-        }
-        basicBtn.setBounds (988, 10, 80, 28);
-        advBtn.setBounds (1072, 10, 88, 28);
-        basicBtn.onClick = [this] { if (basicBtn.getToggleState()) { proc.advancedPage = false; syncTopBar(); } };
-        advBtn.onClick   = [this] { if (advBtn.getToggleState())   { proc.advancedPage = true;  syncTopBar(); } };
+        // The Advanced page is hidden until Ctrl+Alt+V is pressed. Ctrl+Alt+click on the top bar also toggles it.
+        addChildComponent (basicBtn);
+        basicBtn.setButtonText ("BACK TO BASIC");
+        basicBtn.setBounds (1040, 10, 120, 28);
+        basicBtn.onClick = [this] { setAdvanced (false); };
+        setWantsKeyboardFocus (true);
 
         // ---- library stays visible on both pages
         addAndMakeVisible (library);
@@ -240,13 +236,37 @@ private:
             copyBtn.setButtonText (copyText);
 
         const bool adv = proc.advancedPage.load();
-        basicBtn.setToggleState (! adv, dontSendNotification);
-        advBtn.setToggleState (adv, dontSendNotification);
+        basicBtn.setVisible (adv);
         if (basicPage.isVisible() == adv)
         {
             basicPage.setVisible (! adv);
             advPage.setVisible (adv);
         }
+    }
+
+    void setAdvanced (bool on)
+    {
+        proc.advancedPage = on;
+        syncTopBar();
+    }
+
+    bool keyPressed (const KeyPress& k) override
+    {
+        const auto m = k.getModifiers();
+        if (m.isCtrlDown() && m.isAltDown() && (k.getKeyCode() == 'V' || k.getKeyCode() == 'v' || k.getTextCharacter() == 'v'))
+        {
+            setAdvanced (! proc.advancedPage.load());
+            return true;
+        }
+        return false;
+    }
+
+    void mouseDown (const MouseEvent& e) override
+    {
+        if (e.mods.isCtrlDown() && e.mods.isAltDown() && e.y < kBarH)
+            setAdvanced (! proc.advancedPage.load());
+        else
+            grabKeyboardFocus();
     }
 
     void rebuildStrips()
@@ -278,7 +298,7 @@ private:
     LibraryPanel library;
     LedMeter inMeter, outMeter;
     WaveView wave;
-    TextButton abA { "A" }, abB { "B" }, copyBtn { "COPY TO B" }, resetBtn { "RESET" }, basicBtn { "BASIC" }, advBtn { "ADVANCED" };
+    TextButton abA { "A" }, abB { "B" }, copyBtn { "COPY TO B" }, resetBtn { "RESET" }, basicBtn { "BACK TO BASIC" };
     OverlayPage basicPage;
     AdvancedPage advPage { proc };
     TextButton trigBtn { String::fromUTF8 ("\xe2\x96\xb6 TRIGGER") };
