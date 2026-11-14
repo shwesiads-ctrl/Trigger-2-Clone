@@ -1,123 +1,229 @@
 # B Trigger
 
-A drum trigger plugin (VST3 and standalone) built with JUCE. It listens to a drum track, detects every hit
-and plays up to four sample layers in its place, or blended with the original.
+A drum trigger plugin: it listens to a drum track, finds every hit, and plays your own samples in place of the
+original drum (or mixed with it). VST3, Audio Unit and a standalone app, for Windows and macOS.
 
-## What it does
+Free software, built with [JUCE](https://juce.com).
 
-- **Hit detection** from the audio input
-  - *Sensitivity* sets the threshold (the two white lines in the waveform).
-  - *Retrigger* is the shortest time between two hits.
-  - *Detail* controls how easily a new hit is detected on top of the previous hit's tail (rolls, ghost notes).
-  - *Input Volume* is applied before detection, so a hotter input finds quieter hits.
-- **Velocity**: louder hits play their samples louder.
-- **Sample layers** (up to 8, scroll sideways when there are more than four), each with level fader, pan, tune (+/- 12 semitones), Solo, Mute and polarity (Ø).
-  - **ADD LAYER** adds a fader. The **×** on a layer removes it (one layer always stays).
-  - **Click a layer's title** (the pencil) to give it your own name. It is saved with the project. Unnamed layers are called Layer 1, 2, 3 ...
-- **REPLACE ORIGINAL** (on by default): the original drum is removed and only your samples play. Switch it off to blend the original with the samples; the **Mix** knob then sets the balance (0 % original only, 100 % samples only). Output Volume is the final gain.
-- **Top bar**
-- **ABOUT**: opens a panel over the interface with the version, the developer, the Telegram contact, the source link and the licence. Click CLOSE, press Escape, or click outside it to close. Like the RESET confirmation, it is drawn inside the plugin rather than in a pop-up window.
-- **BYPASS**: passes the audio straight through and plays no samples, so you can A/B the plugin against the raw track. The detector keeps running and the waveform still marks the hits, so you can dial the trigger in while bypassed. The host's own bypass switch is wired to the same parameter.
-- **RESET** asks on the button itself: the first click turns it into "SURE?", a second click within three seconds does it. There is no pop-up window, because a dialog opened by a plugin can end up behind the host window and lock up the interface.
-  - **A / B**: two complete sets of settings to compare. B starts as a copy of A the first time you open it. **COPY TO B** (or **COPY TO A**) copies the current settings across. A and B are kept while the plugin window or project is open.
-  - **RESET** puts every knob, layer and effect back to the starting sound (asks first).
-  - The **Advanced page is hidden by default.** Press **Ctrl+Alt+V** (or Ctrl+Alt+click on the top bar) to show it, and again (or BACK TO BASIC) to hide it. The plugin always opens on the Basic page. Some hosts may grab Ctrl+Alt+V for themselves; the Ctrl+Alt+click works there.
-- **Library delete**: right-click (or select and press Delete) any file or folder in My Library or User Samples to delete it. Deleted items go to the trash. **Right-click → Rename** (or F2) renames a file or folder in place. The Factory folder cannot be changed.
-- **Waveform**: one scrolling display, like Trigger 2's. **Red** is what the trigger detector hears (the input through the low cut and high cut), **blue** is the sample it plays, the **white lines** are the sensitivity threshold, and each trigger is marked with a red line (detected) and a blue line (sample start). The loaded sample's name is in the top left. The **ZOOM knob** sets how much time is on screen, from 12 seconds down to 20 ms, where the individual samples are drawn as a line with dots. It starts at about 2 seconds. Turn the knob, roll the mouse wheel over the display, or drag left and right on the display itself; double-click to go back to 2 seconds. The green **SCALE knob** beside ZOOM magnifies the picture (up to x64) without changing anything the plugin does: the wave and the threshold lines grow together, so use this, not INPUT VOLUME, when the wave is too small to see. **INPUT VOLUME feeds the trigger detector**, so turning it up really does make the plugin trigger on more things. The corner readout gives the last hit's peak level and rise time.
-- **LOW CUT / HIGH CUT**: the band the detector listens to (12 dB/oct each), for keeping bleed from other drums out of the trigger. They only affect triggering, never the sound.
-- **SUPPRESS**: after a hit, lifts the threshold in proportion to that hit's level and lets it fall back over about 250 ms, so quieter bleed right after a hit does not trigger. 0 % is off.
-- **Folders**: right-click any folder in My Library, or User Presets in the Presets tab, for New folder, Rename and Delete.
-- **Presets tab**: a folder tree like Trigger 2. **Factory Presets** has 25 kits with 4 presets each (Kick, Snare, Tom 1, Tom 2), 100 in all. They are variations of the built-in modelled sounds (layering, tuning, EQ, compression, room, gate, echo), not recordings. **User Presets** holds your own: type a name and press SAVE (it goes into the selected user folder, or User Presets), click to load, right-click or Delete key to remove. They are saved as `.btp` files in `Documents/B Trigger/User Presets`.
-- **Advanced page**: five effects that work on the sample layers, in this order: Gate, EQ, Compressor, Delay, Reverb. Each has its own ON/OFF switch (off by default), so the starting sound is unchanged.
-  - **Gate**: Threshold, Attack, Hold, Release, Range (how far the gate closes).
-  - **Compressor**: Threshold, Ratio, Attack, Release, Knee, Makeup, Mix (parallel compression).
-  - **Delay**: Time (1 to 1000 ms), Feedback, Low Cut, High Cut (these shape the repeats), Mix, Ping-Pong.
-  - **Reverb**: Size, Damping, Width, Pre-delay, Mix.
-  - **EQ**: High-pass, Low shelf (Freq, Gain), two bells (Freq, Gain, Q), High shelf (Freq, Gain).
-- **Waveform and meters**: the last two seconds of input with a marker on every detected hit.
-- **TRIGGER button** plays the layers without any input, handy for checking your samples.
-- **Library** (left side)
-  - Built-in kicks, snares and toms are created the first time the plugin loads. They are modelled sounds (pitch-dropping shell, overtones, stick transient, snare wires, room), not recordings. Import your own samples for real-kit tone.
-  - **IMPORT TO MY LIBRARY** copies WAV, MP3, FLAC, OGG, AIFF and M4A files into your library.
-  - **Drag and drop**
-    - Drag a sample from the library onto a layer, or drag one layer's sample onto another layer to copy it.
-    - Drop audio files from your computer onto a layer, or onto the library to copy them into My Library.
-  - Click a file to hear it. Double-click it to load it into the first empty layer.
-  - Right-click a layer's file box to empty the layer. Right-click a file in My Library to remove it.
-  - The PRESETS tab loads a few starting points.
-- Settings, layers, effects and the loaded sample files are saved with your DAW project.
-- The window can be resized.
+![The B Trigger interface](docs/ui-basic.png)
+
+## Download
+
+| | |
+|---|---|
+| **Windows** | [B-Trigger-Windows.zip](https://github.com/shwesiads-ctrl/Trigger-2-Clone/releases/download/Windows-latest/B-Trigger-Windows.zip) |
+| **macOS** | [B-Trigger-macOS.zip](https://github.com/shwesiads-ctrl/Trigger-2-Clone/releases/download/macOS-latest/B-Trigger-macOS.zip) |
+
+These links always point at the newest build. The [releases page](https://github.com/shwesiads-ctrl/Trigger-2-Clone/releases)
+says which commit each one was built from.
+
+## Install
+
+| File in the zip | Where it goes | Used by |
+|---|---|---|
+| `B Trigger.vst3` | Windows: `C:\Program Files\Common Files\VST3\`<br>macOS: `/Library/Audio/Plug-Ins/VST3/` | Studio One, Cubase, FL Studio, Live, Reaper |
+| `B Trigger.component` | macOS: `/Library/Audio/Plug-Ins/Components/` | Logic Pro, GarageBand, Final Cut |
+| `B Trigger.exe` / `B Trigger.app` | anywhere you like | runs on its own, without a DAW |
+
+**Windows.** Right-click the zip, open Properties, tick **Unblock**, then extract it. Copy the whole
+`B Trigger.vst3` **folder**, not just the file inside it. The first run of `B Trigger.exe` may show a SmartScreen
+warning: choose *More info*, then *Run anyway*. The plugin is not signed with a paid certificate, so Windows
+has nothing to check it against.
+
+**macOS.** Copy the files, then clear the quarantine flag (see below) and rescan in your DAW. Logic only looks
+for Audio Units when it starts, so quit Logic first; if it still does not appear, run
+`killall -9 AudioComponentRegistrar`, open Logic again and let it scan. **Logic Pro > Settings > Plug-in Manager**
+shows the result and can rescan. The plugin appears under the manufacturer **Bartists Info**.
+
+### macOS: "B Trigger.vst3 is damaged and can't be opened"
+
+Nothing is damaged. macOS puts a quarantine flag on anything downloaded from the internet and refuses to open it
+unless Apple has notarized it, which needs a paid Apple Developer account. Clear the flag yourself:
+
+```sh
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/B Trigger.vst3"
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/B Trigger.component"
+xattr -dr com.apple.quarantine "/Applications/B Trigger.app"
+```
+
+Then open your DAW again and rescan. Do this each time you download a new build.
+
+## Quick start
+
+1. Put B Trigger on a drum track (kick, snare or tom) as an insert effect.
+2. Play the track. Red is what the trigger detector hears; the two white lines are the threshold.
+3. Turn **SENSITIVITY** until there is an orange marker on every hit you want, and none in between.
+4. Pick a sample in the library and double-click it, or drag it onto a layer.
+5. **REPLACE ORIGINAL** is on, so only your sample plays. Switch it off and use **MIX** to blend instead.
+
+The plugin reports a latency of about 1.5 ms so the samples stay lined up with the original drums.
+
+## The interface
+
+### Top bar
+
+- **A / B** — two complete sets of settings, for comparing. B starts as a copy of A the first time you open it.
+  **COPY TO B** (or **COPY TO A**) copies the current settings across. Both are kept with the project.
+- **RESET** — puts every knob, layer and effect back to the starting sound. The first click turns the button
+  into *SURE?*; a second click within three seconds does it.
+- **BYPASS** — passes the audio straight through and plays no samples. The detector keeps running and the
+  waveform still marks the hits, so you can set the trigger up while bypassed. The host's own bypass switch is
+  wired to the same parameter.
+- **ABOUT** — version, credits, contact and licence.
+
+![The about panel](docs/ui-about.png)
+
+None of these open a separate window. A window opened by a plugin can end up behind the host and leave the
+interface stuck, so everything is drawn inside the plugin.
+
+### Trigger controls
+
+- **SENSITIVITY** — the threshold a hit has to cross. The two white lines in the waveform show where it sits.
+- **RETRIGGER** — the shortest time allowed between two hits.
+- **DETAIL** — how easily a new hit is found on top of the previous hit's tail (rolls, ghost notes).
+- **LOW CUT / HIGH CUT** — the band the detector listens to, 12 dB per octave each. Use them to keep bleed from
+  other drums out of the trigger. They change only what triggers, never the sound you hear.
+- **SUPPRESS** — after a hit, lifts the threshold in proportion to that hit's level and lets it fall back over
+  about 250 ms, so quieter bleed right after a hit does not trigger. 0 % is off.
+- **INPUT VOLUME** — applied before the detector, so a hotter input finds quieter hits. It is a trigger control,
+  not a display control.
+
+Louder hits play their samples louder.
+
+### Waveform
+
+![The waveform display](docs/ui-waveform.png)
+
+One scrolling display:
+
+- **Red** is what the detector hears (the input after the low cut and high cut).
+- **Blue** is the sample being played.
+- The **white lines** are the sensitivity threshold.
+- Every trigger is marked with a red line (hit found) and a blue line (sample start).
+- **ZOOM** (orange) sets how much time is on screen, from 12 seconds down to 20 ms, where you see the individual
+  samples as a line with dots. It starts at about 2 seconds. Turn the knob, roll the mouse wheel over the
+  display, or drag left and right on the display itself. Double-click to go back to 2 seconds.
+- **SCALE** (green) magnifies the picture up to 64x without changing anything the plugin does. The wave and the
+  threshold lines grow together. Use this, not INPUT VOLUME, when the wave is too small to see.
+- The corner readout gives the last hit's peak level and rise time.
+
+### Sample layers
+
+Up to eight, scrolling sideways when there are more than four. Each has a level fader, pan, tune (±12
+semitones), Solo, Mute and polarity (Ø).
+
+- **ADD LAYER** adds one; the **×** on a layer removes it. One layer always stays.
+- Click a layer's title (the pencil) to give it your own name. Unnamed layers are called Layer 1, 2, 3 …
+- Drag a sample from the library onto a layer, or drag one layer's sample onto another to copy it.
+- Right-click a layer's file box to empty that layer.
+- **TRIGGER** plays the layers without any input, for checking your samples.
+
+### Output
+
+**REPLACE ORIGINAL** (on by default) removes the original drum and plays only your samples. Switch it off to
+blend, and **MIX** then sets the balance: 0 % original only, 100 % samples only. **VOLUME** is the final gain.
+
+### Library
 
 The library lives in `Documents/B Trigger/`.
 
-## Get the VST3 without installing anything (GitHub Actions)
+- **B Trigger Factory** — kicks, snares and toms created the first time the plugin runs. They are modelled
+  sounds (a pitch-dropping shell, overtones, a stick transient, snare wires, a room), not recordings. Import
+  your own samples for a real kit.
+- **My Library** — **IMPORT TO MY LIBRARY** copies WAV, MP3, FLAC, OGG, AIFF and M4A files in. You can also drop
+  files straight onto the library or onto a layer.
+- Click a file to hear it; double-click to load it into the first empty layer.
+- Right-click a file or folder for **New folder**, **Rename** and **Delete** (or select and press Delete / F2).
+  Deleted items go to the trash. The Factory folder cannot be changed.
 
-1. Push this folder to a GitHub repository (including the `.github` folder). The *Build B Trigger* workflow starts by itself on every push, or start it with **Run workflow** in the **Actions** tab.
-2. When it finishes (a few minutes), open the **Releases** page of the repository. Each run publishes `B-Trigger-Windows.zip` and `B-Trigger-macOS.zip`.
-3. Inside each zip you will find `B Trigger.vst3` (the plugin) and a small Standalone app for testing without a DAW.
+### Presets
 
-## Build on your own computer
+![The presets tab](docs/ui-presets.png)
 
-You need CMake 3.22 or newer and a C++17 compiler (Visual Studio 2022 on Windows, Xcode command line tools on macOS).
+A folder tree, in the **PRESETS** tab.
 
-```
+- **Factory Presets** — 25 kits with four presets each (Kick, Snare, Tom 1, Tom 2), 100 in all. They are
+  variations on the built-in modelled sounds — layering, tuning, EQ, compression, room, gate, echo — not
+  recordings of real kits.
+- **User Presets** — type a name and press **SAVE**. Click a preset to load it, right-click or press Delete to
+  remove it. They are `.btp` files in `Documents/B Trigger/User Presets`.
+
+### Advanced page
+
+![The advanced page](docs/ui-advanced.png)
+
+Hidden by default. Press **Ctrl+Alt+V**, or Ctrl+Alt+click the top bar, to show it; the same again, or
+**BACK TO BASIC**, hides it. The plugin always opens on the Basic page. Some hosts take Ctrl+Alt+V for
+themselves, and the Ctrl+Alt+click still works there.
+
+Five effects on the sample layers, in this order: **Gate → EQ → Compressor → Delay → Reverb**. Each has its own
+ON/OFF switch and all start off, so the sound is unchanged until you turn one on.
+
+- **Gate** — Threshold, Attack, Hold, Release, Range.
+- **Compressor** — Threshold, Ratio, Attack, Release, Knee, Makeup, Mix (parallel).
+- **Delay** — Time (1–1000 ms), Feedback, Low Cut, High Cut, Mix, Ping-Pong.
+- **Reverb** — Size, Damping, Width, Pre-delay, Mix.
+- **EQ** — High-pass, low shelf, two bells with Q, high shelf.
+
+## Importing `.tci` files
+
+Drop a Steven Slate Trigger `.tci` file on the library and it is converted in the background, with a progress
+bar, into a new folder in My Library: 24-bit WAVs named `FAMILY_MIC_V##_RR#.wav` (velocity layer and round
+robin, ordered by attack peak) plus a `MAP.txt` describing what was decoded. V1, V2 and Instrument Editor files
+work, mono and stereo.
+
+Limits: stereo samples lose roughly the first 2 ms of their attack, which has not been decoded yet, and a mono
+sample the solver cannot work out is skipped and listed in `MAP.txt`.
+
+**Only convert libraries you own, and keep the results to yourself.** The samples still belong to the company
+that made them.
+
+## Other things to know
+
+- Samples longer than 30 seconds are cut at 30 seconds.
+- Settings, layers, effects and the loaded sample paths are saved with your DAW project.
+- The window can be resized, between half and double its normal size.
+- No velocity layers, round robin or MIDI output yet.
+
+## Build from source
+
+Needs CMake 3.22+ and a C++17 compiler. JUCE is downloaded automatically.
+
+```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --parallel
 ```
 
-JUCE 8.0.4 is downloaded automatically. To use your own copy of JUCE add `-DBTRIGGER_JUCE_DIR=/path/to/JUCE`.
-The plugin appears in `build/BTrigger_artefacts/Release/VST3/B Trigger.vst3`.
-
-## Install
-
-The plugin shows up under the manufacturer name **Bartists Info**.
-
-
-| What | Where it goes | Hosts |
-|------|---------------|-------|
-| `B Trigger.vst3` | Windows: `C:\Program Files\Common Files\VST3\`  <br> macOS: `/Library/Audio/Plug-Ins/VST3/` | Studio One, Cubase, FL Studio, Live, Reaper |
-| `B Trigger.component` | macOS: `/Library/Audio/Plug-Ins/Components/` | Logic Pro, GarageBand, Final Cut |
-| `B Trigger.exe` / `B Trigger.app` | anywhere | runs on its own, no DAW |
-
-On Windows, unblock the zip before extracting: right-click it, Properties, tick **Unblock**, OK. Copy the whole
-`B Trigger.vst3` **folder**, not just the file inside it.
-
-On macOS, remove the quarantine flag after copying (see "is damaged and can't be opened" below), then rescan.
-Logic only looks for Audio Units when it starts, so quit Logic first; if it still does not appear, run
-`killall -9 AudioComponentRegistrar` in Terminal, reopen Logic, and let it scan. **Logic Pro > Settings >
-Plug-in Manager** shows the result and can rescan a failed plugin.
-
-## Use it in a DAW
-
-Put B Trigger on the drum track (kick, snare or tom), as an insert effect. Start with *Mix* at 100 %. Adjust
-*Sensitivity* until the markers sit on every hit you want and nothing else. The plugin reports a latency of about
-1.5 ms so the samples line up with the original drums.
-
-## Limits of this first version
-
-- Samples longer than 30 seconds are cut at 30 seconds.
-- **.tci import**: drop a `.tci` file on the library (or use IMPORT TO MY LIBRARY). It is converted automatically on a background thread with a progress bar, into a new folder in My Library with 24-bit WAVs named `FAMILY_MIC_V##_RR#.wav` (velocity layer and round robin, ordered by attack peak) plus a `MAP.txt`. Supports Trigger 2 V1/V2 and Instrument Editor files, mono and stereo. Limits: stereo samples lose their first ~2 ms of attack (not decodable yet, left silent), and a mono sample the solver cannot work out is skipped (listed in `MAP.txt`). Only convert libraries you own.
-- No velocity layers or round robin yet, and no MIDI output.
+The plugins end up in `build/BTrigger_artefacts/Release/`. Point the build at a JUCE checkout you already have
+with `-DBTRIGGER_JUCE_DIR=/path/to/JUCE`. On macOS, add
+`-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"` for a universal build. Every push is built for Windows and macOS by
+[GitHub Actions](.github/workflows/build.yml), which also runs Apple's `auval` on the Audio Unit.
 
 ## Credits
 
-Made by **Myo Min Aung** (Telegram [@kominit](https://t.me/kominit)), published as **Bartists Info**.
+Made by **Myo Min Aung** — Telegram [@kominit](https://t.me/kominit) — published as **Bartists Info**.
 
-## License
+`Source/TciConverter.h` is a C++ port of the decoders in [tci2wav](https://github.com/AidanScroggins/tci2wav) by
+Aidan Scroggins (MIT, Copyright © 2026 Aidan Scroggins), which worked out the TCI format. The MIT licence text:
 
-B Trigger is free software, released under the **GNU Affero General Public License, version 3 or later
-(AGPL-3.0-or-later)**. You may use, study, change and share it. If you share a changed version, or run it
-as a network service, you have to share your changes under the same licence.
+> Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+> documentation files (the "Software"), to deal in the Software without restriction, including without
+> limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+> Software, and to permit persons to whom the Software is furnished to do so, subject to the following
+> conditions: The above copyright notice and this permission notice shall be included in all copies or
+> substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
-This is the licence the project has to use: B Trigger is built on [JUCE](https://juce.com), which is offered
-either under the AGPLv3 or under a paid commercial licence. Staying open source under the AGPLv3 means no
-JUCE licence has to be bought.
+## Licence
 
-The full licence text is in the [`LICENSE`](LICENSE) file, and the canonical copy is at
-<https://www.gnu.org/licenses/agpl-3.0.txt>.
+B Trigger is free software under the **GNU Affero General Public License, version 3 or later**
+([AGPL-3.0-or-later](LICENSE)). You may use, study, change and share it. If you share a changed version, or run
+it as a network service, your changes have to be available under the same licence.
+
+This is the licence the project has to use: JUCE is offered either under the AGPLv3 or under a paid commercial
+licence, and staying open source means no JUCE licence has to be bought.
 
     B Trigger, a drum trigger plugin.
-    Copyright (C) 2026 B Trigger contributors
+    Copyright (C) 2026 Myo Min Aung
 
     This program is free software: you can redistribute it and/or modify it under the terms of the
     GNU Affero General Public License as published by the Free Software Foundation, either version 3
@@ -130,30 +236,5 @@ The full licence text is in the [`LICENSE`](LICENSE) file, and the canonical cop
     You should have received a copy of the GNU Affero General Public License along with this program.
     If not, see <https://www.gnu.org/licenses/>.
 
-### What you may not share
-
-The licence covers **this code**, not other people's sounds. The `.tci` converter is there so you can use
-libraries you have bought, on your own machine. Samples or presets made from a commercial library
-(Steven Slate Drums and the like) stay that company's property, so do not upload them here or anywhere else.
-Only your own recordings and your own sounds belong in a preset pack.
-
-## macOS: "B Trigger.vst3 is damaged and can't be opened"
-
-macOS says this about anything downloaded from the internet that Apple has not notarized. The file is not actually
-damaged: macOS puts a quarantine flag on the download and refuses to open it. Notarizing needs a paid Apple
-Developer ID, so remove the flag yourself after copying the plugin into place:
-
-```sh
-xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/B Trigger.vst3"
-xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/B Trigger.component"
-xattr -dr com.apple.quarantine "/Applications/B Trigger.app"
-```
-
-Then open your DAW again and rescan the plugins. Logic also needs `killall -9 AudioComponentRegistrar` before it will look at the Audio Unit again. If Logic or Live still refuses it, also run
-`killall -9 AudioComponentRegistrar` or restart the Mac so the plugin cache is rebuilt.
-
-## Third-party code
-
-`Source/TciConverter.h` is a C++ port of the decoders in [tci2wav](https://github.com/AidanScroggins/tci2wav) by Aidan Scroggins (MIT License, Copyright (c) 2026 Aidan Scroggins), which reverse engineered the TCI format. The MIT license text:
-
-> Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+**The licence covers this code, not other people's sounds.** Samples and presets made from a commercial library
+stay that company's property. Only your own recordings belong in a preset pack you share.

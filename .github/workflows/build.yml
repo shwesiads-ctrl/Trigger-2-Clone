@@ -75,11 +75,17 @@ jobs:
         if: matrix.name == 'macOS'
         run: cd dist && ditto -c -k --sequesterRsrc . ../B-Trigger-macOS.zip
 
+      # One rolling release per platform, so the download link never changes and old builds do not pile up.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ matrix.name }}-build-${{ github.run_number }}
-          name: B Trigger ${{ matrix.name }} (build ${{ github.run_number }})
+          tag_name: ${{ matrix.name }}-latest
+          name: B Trigger for ${{ matrix.name }}
+          body: |
+            Latest build of B Trigger for ${{ matrix.name }} (build ${{ github.run_number }}, commit ${{ github.sha }}).
+
+            Unzip and follow the install steps in the [README](https://github.com/shwesiads-ctrl/Trigger-2-Clone#install).
+            On macOS, remove the quarantine flag afterwards or macOS will say the plugin is damaged.
           files: B-Trigger-${{ matrix.name }}.zip
 
       - name: Upload artifact
