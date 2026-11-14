@@ -99,8 +99,10 @@ This is the licence the project has to use: B Trigger is built on [JUCE](https:/
 either under the AGPLv3 or under a paid commercial licence. Staying open source under the AGPLv3 means no
 JUCE licence has to be bought.
 
-The full licence text is in the `LICENSE` file, and the canonical copy is at
-<https://www.gnu.org/licenses/agpl-3.0.txt>.
+The full licence text belongs in the `LICENSE` file, and the canonical copy is at
+<https://www.gnu.org/licenses/agpl-3.0.txt>. **The `LICENSE` file in this repository still holds the GPLv3
+text and has to be replaced with the AGPLv3 text** (on GitHub: Add file > Create new file > name it
+`LICENSE` > Choose a license template > GNU Affero General Public License v3.0).
 
     B Trigger, a drum trigger plugin.
     Copyright (C) 2026 B Trigger contributors
