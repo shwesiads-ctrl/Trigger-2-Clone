@@ -368,8 +368,10 @@ public:
                 peakView = jmax (peakView, jmax (-l, h));
             }
         }
-        smooth = jmax (peakView, smooth * 0.97f);
-        const float gain = smooth > 0.015f ? jmin (0.92f / smooth, 60.0f) : 1.0f;
+        // A fixed scale, not an automatic one: the top of the display is full scale, so turning INPUT VOLUME
+        // up really does make the wave bigger, and the threshold lines only move when SENSITIVITY moves.
+        ignoreUnused (peakView);
+        const float gain = 1.0f;
 
         // ---- time ruler
         {
@@ -409,15 +411,14 @@ public:
             drawBars (g, area, cy, half, gain, kRed, 0);
         }
 
-        // ---- sensitivity threshold
+        // ---- sensitivity threshold: a hit has to reach these lines to trigger
         const float sens = proc.apvts.getRawParameterValue ("sens")->load();
-        const float thr = Decibels::decibelsToGain (BTriggerProcessor::thresholdDb (sens)) * gain * half;
-        if (thr > 1.0f && thr < half)
-        {
-            g.setColour (Colours::white.withAlpha (0.65f));
-            g.fillRect (area.getX(), cy - thr - 0.5f, area.getWidth(), 1.0f);
-            g.fillRect (area.getX(), cy + thr - 0.5f, area.getWidth(), 1.0f);
-        }
+        const float thr = jlimit (1.5f, half, Decibels::decibelsToGain (BTriggerProcessor::thresholdDb (sens)) * half);
+        g.setColour (Colours::white.withAlpha (0.06f));
+        g.fillRect (area.getX(), cy - thr, area.getWidth(), thr * 2.0f);
+        g.setColour (Colours::white.withAlpha (0.7f));
+        g.fillRect (area.getX(), cy - thr - 0.5f, area.getWidth(), 1.0f);
+        g.fillRect (area.getX(), cy + thr - 0.5f, area.getWidth(), 1.0f);
 
         // ---- trigger points
         const juce::int64 lag = (juce::int64) (0.0015f * rate);
@@ -494,7 +495,6 @@ private:
 
     BTriggerProcessor& proc;
     Slider zoom;
-    float smooth = 0.0f;
     double dragStart = 0.0;
     std::vector<float> lo[2], hi[2];
 };
