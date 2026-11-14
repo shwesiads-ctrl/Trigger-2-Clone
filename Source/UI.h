@@ -856,7 +856,7 @@ private:
             std::sort (files.begin(), files.end(), byName);
 
             for (const auto& d : dirs)
-                if (owner.dirVisible (d))
+                if (owner.dirVisible (d) && d != BTriggerProcessor::userPresetDir())   // presets live in the Presets tab
                     addSubItem (new LibItem (owner, d));
             for (const auto& f : files)
                 if (owner.fileVisible (f))
