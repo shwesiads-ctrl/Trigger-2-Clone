@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "FactorySamples.h"
 #include "Presets.h"
+#include "TciConverter.h"
 
 // All custom UI pieces for B Trigger: look and feel, meters, waveform, knobs, layer strips, library.
 namespace BTUI
@@ -584,7 +585,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------------------------
-class LibraryPanel : public Component, public FileDragAndDropTarget
+class LibraryPanel : public Component, public FileDragAndDropTarget, private Timer
 {
 public:
     explicit LibraryPanel (BTriggerProcessor& p) : proc (p)
@@ -667,6 +668,11 @@ public:
         msg.setFont (bFont (10.5f));
         msg.setColour (Label::textColourId, kInk);
 
+        addChildComponent (bar);
+        bar.setPercentageDisplay (true);
+        bar.setColour (ProgressBar::foregroundColourId, Colour (0xff8fc417));
+        bar.setColour (ProgressBar::backgroundColourId, Colours::white.withAlpha (0.55f));
+
         addAndMakeVisible (importBtn);
         importBtn.getProperties().set ("primary", true);
         importBtn.onClick = [this] { startImport(); };
@@ -674,7 +680,7 @@ public:
         rebuild();
     }
 
-    ~LibraryPanel() override { tree.setRootItem (nullptr); presetTree.setRootItem (nullptr); }
+    ~LibraryPanel() override { stopTimer(); job.reset(); tree.setRootItem (nullptr); presetTree.setRootItem (nullptr); }
 
     void paint (Graphics& g) override
     {
@@ -704,6 +710,7 @@ public:
         presetTree.setBounds (8, 127, 192, 317);
         msg.setBounds (12, 448, 184, 14);
         importBtn.setBounds (8, 466, 192, 34);
+        bar.setBounds (8, 466, 192, 34);
         presetName.setBounds (8, 466, 118, 34);
         saveBtn.setBounds (130, 466, 70, 34);
     }
@@ -899,7 +906,8 @@ private:
     {
         tree.setVisible (library);
         search.setVisible (library);
-        importBtn.setVisible (library);
+        importBtn.setVisible (library && job == nullptr);
+        bar.setVisible (library && job != nullptr);
         presetTree.setVisible (! library);
         presetName.setVisible (! library);
         saveBtn.setVisible (! library);
@@ -1088,6 +1096,7 @@ private:
 
         int added = 0;
         String problem;
+        Array<File> tcis;
         for (const auto& p : paths)
         {
             const File f (p);
@@ -1100,7 +1109,7 @@ private:
                 continue;
             if (f.hasFileExtension ("tci"))
             {
-                problem = "TCI is a closed Trigger format. Export it as WAV first.";
+                tcis.add (f);
                 continue;
             }
             if (! f.hasFileExtension (audioExts))
@@ -1112,6 +1121,9 @@ private:
             if (f.copyFileTo (target))
                 ++added;
         }
+
+        if (! tcis.isEmpty())
+            startTciConversion (tcis);
 
         if (added > 0)
         {
@@ -1394,6 +1406,117 @@ private:
     TextEditor presetName;
     TextButton saveBtn { "SAVE" };
     std::unique_ptr<PresetItem> presetRoot;
+    // ---- .tci conversion: runs on its own thread, shows a progress bar, drops the WAVs into My Library
+    class TciJob : public Thread
+    {
+    public:
+        TciJob (Array<File> f, File dest) : Thread ("TCI convert"), files (std::move (f)), destRoot (std::move (dest)) {}
+        ~TciJob() override { stopThread (5000); }
+
+        std::atomic<double> progress { 0.0 };
+        std::atomic<bool> finished { false };
+        String status() const { const ScopedLock sl (lock); return statusText; }
+        String report() const { const ScopedLock sl (lock); return reportText; }
+        File lastFolder;
+
+        void run() override
+        {
+            int ok = 0, written = 0;
+            String errors;
+            const int n = files.size();
+            for (int i = 0; i < n && ! threadShouldExit(); ++i)
+            {
+                const File f = files[i];
+                const File out = destRoot.getNonexistentChildFile (f.getFileNameWithoutExtension(), {}, false);
+                auto res = TCI::convertFile (f, out, [this, i, n, f] (double p, const String& t)
+                {
+                    progress = ((double) i + p) / (double) n;
+                    setStatus ((n > 1 ? String (i + 1) + "/" + String (n) + "  " : String()) + t);
+                    return ! threadShouldExit();
+                });
+                if (res.ok) { ++ok; written += res.written; lastFolder = out; }
+                else
+                {
+                    out.deleteRecursively();
+                    errors << f.getFileName() << ": " << res.error << "  ";
+                }
+            }
+            const ScopedLock sl (lock);
+            reportText = ok > 0 ? "Converted " + String (written) + " WAVs from " + String (ok) + (ok == 1 ? " TCI" : " TCIs") + (errors.isNotEmpty() ? ". " + errors : String())
+                                : (errors.isNotEmpty() ? errors : String ("Conversion stopped"));
+            progress = 1.0;
+            finished = true;
+        }
+
+    private:
+        void setStatus (const String& s) { const ScopedLock sl (lock); statusText = s; }
+        Array<File> files;
+        File destRoot;
+        CriticalSection lock;
+        String statusText, reportText;
+    };
+
+    void startTciConversion (const Array<File>& tcis)
+    {
+        if (job != nullptr)
+        {
+            say ("Still converting. Wait for it to finish.");
+            return;
+        }
+        myLibrary().createDirectory();
+        job = std::make_unique<TciJob> (tcis, myLibrary());
+        progressValue = 0.0;
+        job->startThread();
+        updateBusy();
+        startTimerHz (15);
+    }
+
+    void timerCallback() override
+    {
+        if (job == nullptr)
+        {
+            stopTimer();
+            return;
+        }
+        progressValue = job->progress.load();
+        msg.setText (job->status(), dontSendNotification);
+        if (job->finished.load())
+        {
+            stopTimer();
+            const auto report = job->report();
+            const File folder = job->lastFolder;
+            job.reset();
+            updateBusy();
+            search.clear();
+            query = {};
+            rebuild();
+            for (int i = 0; i < root->getNumSubItems(); ++i)
+                if (auto* item = dynamic_cast<LibItem*> (root->getSubItem (i)))
+                    if (item->getFile().getFileName() == "My Library")
+                    {
+                        item->setOpen (true);
+                        if (folder != File())
+                            for (int j = 0; j < item->getNumSubItems(); ++j)
+                                if (auto* kid = dynamic_cast<LibItem*> (item->getSubItem (j)))
+                                    if (kid->getFile() == folder)
+                                        kid->setOpen (true);
+                    }
+            say (report);
+        }
+    }
+
+    void updateBusy()
+    {
+        const bool busy = job != nullptr;
+        const bool lib = tabLibrary.getToggleState();
+        bar.setVisible (busy && lib);
+        importBtn.setVisible (! busy && lib);
+    }
+
+    std::unique_ptr<TciJob> job;
+    double progressValue = 0.0;
+    ProgressBar bar { progressValue };
+
     TextEditor renameEd;
     File renaming;
     bool renamingPreset = false;

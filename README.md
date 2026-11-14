@@ -80,10 +80,16 @@ Put B Trigger on the drum track (kick, snare or tom), as an insert effect. Start
 ## Limits of this first version
 
 - Samples longer than 30 seconds are cut at 30 seconds.
-- `.tci` files (Trigger 2 instruments) are a closed format and cannot be read. Export the samples as WAV first.
+- **.tci import**: drop a `.tci` file on the library (or use IMPORT TO MY LIBRARY). It is converted automatically on a background thread with a progress bar, into a new folder in My Library with 24-bit WAVs named `FAMILY_MIC_V##_RR#.wav` (velocity layer and round robin, ordered by attack peak) plus a `MAP.txt`. Supports Trigger 2 V1/V2 and Instrument Editor files, mono and stereo. Limits: stereo samples lose their first ~2 ms of attack (not decodable yet, left silent), and a mono sample the solver cannot work out is skipped (listed in `MAP.txt`). Only convert libraries you own.
 - No velocity layers or round robin yet, and no MIDI output.
 
 ## License
 
 B Trigger uses [JUCE](https://juce.com), which is available under the AGPLv3 or a commercial license.
 Check the JUCE license terms before you distribute the plugin.
+
+## Third-party code
+
+`Source/TciConverter.h` is a C++ port of the decoders in [tci2wav](https://github.com/AidanScroggins/tci2wav) by Aidan Scroggins (MIT License, Copyright (c) 2026 Aidan Scroggins), which reverse engineered the TCI format. The MIT license text:
+
+> Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
