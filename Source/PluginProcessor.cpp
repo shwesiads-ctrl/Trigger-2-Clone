@@ -16,6 +16,12 @@ BTriggerProcessor::BTriggerProcessor()
         inPeak[c].store (0.0f);
         outPeak[c].store (0.0f);
     }
+    for (int i = 0; i < kFine; ++i)
+    {
+        fineLo[i].store (0.0f);
+        fineHi[i].store (0.0f);
+        fineMark[i].store (0);
+    }
     for (int i = 0; i < kDetailLen; ++i)
         hitWave[i].store (0.0f);
     for (int i = 0; i < kCols; ++i)
@@ -428,6 +434,9 @@ void BTriggerProcessor::prepareToPlay (double sr, int)
         }
 
     samplesPerCol = sr * 2.0 / (double) kCols;
+    fineSamples = sr * kFineSeconds / (double) kFine;
+    fineAcc = 0.0;
+    fLo = fHi = 0.0f;
     colAcc = 0.0;
     colMax = 0.0f;
     wpos = 0;
@@ -592,7 +601,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     if (manual >= 0.0f)
     {
         fireVoices (manual);
-        markPending = true;
+        markPending = fineMarkPending = true;
         startCapture (thrLin);
     }
 
@@ -611,6 +620,8 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         mInL = juce::jmax (mInL, std::abs (inL * inGain));
         mInR = juce::jmax (mInR, std::abs (inR * inGain));
         colMax = juce::jmax (colMax, std::abs (mono));
+        fLo = juce::jmin (fLo, mono * 1.0f);
+        fHi = juce::jmax (fHi, mono * 1.0f);
 
         ring[ringPos] = mono;
         ringPos = (ringPos + 1) & (kRing - 1);
@@ -626,7 +637,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             if (--windowLeft == 0)
             {
                 fireVoices (winPeak);
-                markPending = true;
+                markPending = fineMarkPending = true;
                 armed = false;
                 cooldown = retrigSamples;
             }
@@ -716,6 +727,20 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         mOutL = juce::jmax (mOutL, std::abs (outL));
         mOutR = juce::jmax (mOutR, std::abs (outR));
+
+        // ---- fine scrolling waveform
+        fineAcc += 1.0;
+        if (fineAcc >= fineSamples)
+        {
+            fineAcc -= fineSamples;
+            fineLo[fpos].store (fLo);
+            fineHi[fpos].store (fHi);
+            fineMark[fpos].store (fineMarkPending ? 1 : 0);
+            fineMarkPending = false;
+            fLo = fHi = 0.0f;
+            fpos = (fpos + 1) % kFine;
+            fineHead.store (fpos);
+        }
 
         // ---- waveform columns for the display
         colAcc += 1.0;

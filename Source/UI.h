@@ -269,6 +269,8 @@ class WaveView : public Component
 public:
     explicit WaveView (BTriggerProcessor& p) : proc (p) {}
 
+    // A scrolling waveform of the last 0.4 s, drawn as true min/max so every attack shows in detail.
+    // Orange markers are the hits; the readout in the corner is the last hit's peak and rise time.
     void paint (Graphics& g) override
     {
         const auto b = getLocalBounds().toFloat();
@@ -276,148 +278,100 @@ public:
                                            Colour (0xff272b1d), b.getX(), b.getY(), true));
         g.fillRoundedRectangle (b, 20.0f);
 
-        paintDetail (g, b.reduced (14.0f, 14.0f));
-
-        g.setColour (Colours::white.withAlpha (0.35f));
-        g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
-    }
-
-private:
-    // ---- left: the last two seconds, one column per 5 ms
-    void paintOverview (Graphics& g, Rectangle<float> area)
-    {
+        auto area = b.reduced (14.0f, 14.0f);
+        auto stats = area.removeFromTop (14.0f);
+        auto axis = area.removeFromBottom (14.0f);
+        area.removeFromTop (6.0f);
         const float cy = area.getCentreY();
         const float half = area.getHeight() * 0.5f;
-        const int cols = BTriggerProcessor::kCols;
-        const float colW = area.getWidth() / (float) cols;
-        const int head = proc.waveHead.load();
+        const int cols = BTriggerProcessor::kFine;
+        const int head = proc.fineHead.load();
+        const float colsPerMs = (float) cols / (float) (BTriggerProcessor::kFineSeconds * 1000.0);
 
-        g.setColour (Colour (0xffd4f53a));
-        for (int c = 0; c < cols; ++c)
+        // time ruler: 0 is now, at the right edge
+        g.setFont (bFont (9.5f));
+        for (int ms = 0; ms <= 400; ms += 50)
         {
-            const int idx = (head + c) % cols;
-            const float db = Decibels::gainToDecibels (proc.wavePeaks[idx].load(), -60.0f);
-            const float h = jlimit (0.0f, 1.0f, (db + 60.0f) / 60.0f) * half;
-            if (h > 0.5f)
-                g.fillRect (area.getX() + (float) c * colW, cy - h, jmax (1.0f, colW * 0.75f), h * 2.0f);
+            const float x = area.getRight() - (float) ms * colsPerMs * area.getWidth() / (float) cols;
+            g.setColour (Colours::white.withAlpha (0.12f));
+            g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
+            g.setColour (Colours::white.withAlpha (0.65f));
+            g.drawText (ms == 0 ? "now" : "-" + String (ms), Rectangle<float> (x - 16.0f, axis.getY(), 32.0f, axis.getHeight()),
+                        Justification::centred, false);
+        }
+
+        // waveform
+        const int w = jmax (1, (int) area.getWidth());
+        float gain = 1.0f;
+        {
+            float mx = 0.0f;
+            for (int i = 0; i < cols; i += 2)
+                mx = jmax (mx, jmax (std::abs (proc.fineLo[i].load (std::memory_order_relaxed)),
+                                      std::abs (proc.fineHi[i].load (std::memory_order_relaxed))));
+            smooth = jmax (mx, smooth * 0.96f);
+            gain = smooth > 0.02f ? jmin (1.0f / smooth, 40.0f) * 0.92f : 1.0f;
+        }
+        g.setColour (Colour (0xffd4f53a));
+        for (int x = 0; x < w; ++x)
+        {
+            const int c0 = x * cols / w, c1 = jmax (c0 + 1, (x + 1) * cols / w);
+            float lo = 0.0f, hi = 0.0f;
+            for (int c = c0; c < c1; ++c)
+            {
+                const int idx = (head + c) % cols;
+                lo = jmin (lo, proc.fineLo[idx].load (std::memory_order_relaxed));
+                hi = jmax (hi, proc.fineHi[idx].load (std::memory_order_relaxed));
+            }
+            const float yHi = cy - jlimit (-1.0f, 1.0f, hi * gain) * half;
+            const float yLo = cy - jlimit (-1.0f, 1.0f, lo * gain) * half;
+            if (yLo - yHi > 0.2f)
+                g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
         }
 
         g.setColour (Colour (0x88c9f23c));
         g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
 
+        // threshold (the detector sees the signal after a high-pass, so this is a guide)
         const float sens = proc.apvts.getRawParameterValue ("sens")->load();
-        const float thr = jlimit (0.0f, 1.0f, (BTriggerProcessor::thresholdDb (sens) + 60.0f) / 60.0f) * half;
-        g.setColour (Colours::white.withAlpha (0.85f));
-        g.fillRect (area.getX(), cy - thr - 0.75f, area.getWidth(), 1.5f);
-        g.fillRect (area.getX(), cy + thr - 0.75f, area.getWidth(), 1.5f);
+        const float thr = Decibels::decibelsToGain (BTriggerProcessor::thresholdDb (sens)) * gain * half;
+        if (thr > 1.0f && thr < half)
+        {
+            g.setColour (Colours::white.withAlpha (0.8f));
+            g.fillRect (area.getX(), cy - thr - 0.75f, area.getWidth(), 1.5f);
+            g.fillRect (area.getX(), cy + thr - 0.75f, area.getWidth(), 1.5f);
+        }
 
+        // hits
         g.setColour (kOrange);
         for (int c = 0; c < cols; ++c)
         {
             const int idx = (head + c) % cols;
-            if (proc.waveMarks[idx].load() == 0)
+            if (proc.fineMark[idx].load() == 0)
                 continue;
-            const float x = area.getX() + ((float) c + 0.5f) * colW;
+            const float x = area.getX() + ((float) c + 0.5f) * area.getWidth() / (float) cols;
             g.fillRect (x - 1.0f, area.getY() - 4.0f, 2.0f, area.getHeight() + 8.0f);
             Path t;
             t.addTriangle (x - 6.0f, area.getY() - 8.0f, x + 6.0f, area.getY() - 8.0f, x, area.getY() + 1.0f);
             t.addTriangle (x - 6.0f, area.getBottom() + 8.0f, x + 6.0f, area.getBottom() + 8.0f, x, area.getBottom() - 1.0f);
             g.fillPath (t);
         }
-    }
 
-    // ---- right: a close-up of the last hit, sample by sample, with the trigger point and measurements
-    void paintDetail (Graphics& g, Rectangle<float> area)
-    {
-        auto stats = area.removeFromTop (14.0f);
-        auto axis = area.removeFromBottom (14.0f);
-        area.removeFromTop (6.0f);
-        const float cy = area.getCentreY();
-        const float half = area.getHeight() * 0.5f;
-
-        const int len = BTriggerProcessor::kDetailLen, pre = BTriggerProcessor::kDetailPre;
-        const float rate = proc.hitRate.load();
-        const bool have = proc.hitRev.load() > 0;
-        const float peak = proc.hitPeak.load();
-        const float scale = have ? 0.92f / jmax (peak, 0.02f) : 1.0f;
-
-        g.setColour (Colour (0x55c9f23c));
-        g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
-
-        // time grid every 5 ms, 0 at the trigger point
-        const float msPerSample = 1000.0f / rate;
-        const float pxPerSample = area.getWidth() / (float) len;
-        g.setFont (bFont (9.5f));
-        for (int ms = -10; ms <= 35; ms += 5)
-        {
-            const float x = area.getX() + ((float) pre + (float) ms / msPerSample) * pxPerSample;
-            if (x < area.getX() || x > area.getRight())
-                continue;
-            g.setColour (Colours::white.withAlpha (ms == 0 ? 0.0f : 0.12f));
-            g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
-            g.setColour (Colours::white.withAlpha (0.65f));
-            g.drawText (String (ms), Rectangle<float> (x - 12.0f, axis.getY(), 24.0f, axis.getHeight()), Justification::centred, false);
-        }
-        g.drawText ("ms", Rectangle<float> (axis.getRight() - 16.0f, axis.getY(), 18.0f, axis.getHeight()), Justification::centredRight, false);
-
-        if (! have)
-        {
-            g.setColour (Colours::white.withAlpha (0.55f));
-            g.setFont (bFont (12.0f));
-            g.drawText ("Hit a drum or press TRIGGER", area, Justification::centred, false);
-            g.setColour (Colour (0x88c9f23c));
-            g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
-            return;
-        }
-
-        // waveform: min and max per pixel column, so nothing is skipped
-        const int w = jmax (1, (int) area.getWidth());
-        g.setColour (Colour (0xffd4f53a));
-        for (int x = 0; x < w; ++x)
-        {
-            const int i0 = x * len / w, i1 = jmax (i0 + 1, (x + 1) * len / w);
-            float lo = 0.0f, hi = 0.0f;
-            for (int i = i0; i < i1; ++i)
-            {
-                const float v = proc.hitWave[i].load (std::memory_order_relaxed);
-                lo = jmin (lo, v);
-                hi = jmax (hi, v);
-            }
-            const float yHi = cy - jlimit (-1.0f, 1.0f, hi * scale) * half;
-            const float yLo = cy - jlimit (-1.0f, 1.0f, lo * scale) * half;
-            g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
-        }
-
-        // threshold
-        const float thr = proc.hitThr.load() * scale * half;
-        if (thr > 1.0f && thr < half)
-        {
-            g.setColour (Colours::white.withAlpha (0.75f));
-            g.fillRect (area.getX(), cy - thr - 0.5f, area.getWidth(), 1.0f);
-            g.fillRect (area.getX(), cy + thr - 0.5f, area.getWidth(), 1.0f);
-        }
-
-        // trigger point and peak point
-        const float xT = area.getX() + (float) pre * pxPerSample;
-        g.setColour (kOrange);
-        g.fillRect (xT - 1.0f, area.getY(), 2.0f, area.getHeight());
-        Path tri;
-        tri.addTriangle (xT - 5.0f, area.getY() - 1.0f, xT + 5.0f, area.getY() - 1.0f, xT, area.getY() + 7.0f);
-        g.fillPath (tri);
-        const float xP = area.getX() + (float) proc.hitPeakIndex.load() * pxPerSample;
-        g.setColour (Colours::white);
-        const float pv = proc.hitWave[jlimit (0, len - 1, proc.hitPeakIndex.load())].load (std::memory_order_relaxed);
-        g.fillEllipse (xP - 3.0f, cy - jlimit (-1.0f, 1.0f, pv * scale) * half - 3.0f, 6.0f, 6.0f);
-        g.drawLine (xP, area.getY() + 8.0f, xP, area.getBottom() - 2.0f, 1.0f);
-
-        // numbers
         g.setColour (Colours::white.withAlpha (0.9f));
         g.setFont (bFont (11.5f));
-        const float pk = Decibels::gainToDecibels (peak, -90.0f);
-        g.drawText ("PEAK " + String (pk, 1) + " dB     RISE " + String (proc.hitAttackMs.load(), 2) + " ms", stats, Justification::centredRight, false);
+        if (proc.hitRev.load() > 0)
+            g.drawText ("LAST HIT   PEAK " + String (Decibels::gainToDecibels (proc.hitPeak.load(), -90.0f), 1) + " dB     RISE "
+                            + String (proc.hitAttackMs.load(), 2) + " ms",
+                        stats, Justification::centredRight, false);
+        else
+            g.drawText ("Hit a drum or press TRIGGER", stats, Justification::centredRight, false);
+
+        g.setColour (Colours::white.withAlpha (0.35f));
+        g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
     }
 
+private:
     BTriggerProcessor& proc;
+    float smooth = 0.0f;
 };
 
 // ---------------------------------------------------------------------------------------------
