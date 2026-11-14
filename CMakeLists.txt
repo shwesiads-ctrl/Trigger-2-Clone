@@ -23,14 +23,14 @@ if(APPLE)
 endif()
 
 juce_add_plugin(BTrigger
-    COMPANY_NAME "B Audio"
-    PLUGIN_MANUFACTURER_CODE Baud
+    COMPANY_NAME "Bartists Info"
+    PLUGIN_MANUFACTURER_CODE Bart
     PLUGIN_CODE Btrg
     FORMATS ${BTRIGGER_FORMATS}
     PRODUCT_NAME "B Trigger"
     VST3_CATEGORIES Fx
     AU_MAIN_TYPE kAudioUnitType_Effect
-    BUNDLE_ID com.baudio.btrigger
+    BUNDLE_ID info.bartists.btrigger
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE

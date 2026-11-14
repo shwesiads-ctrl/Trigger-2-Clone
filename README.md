@@ -69,6 +69,9 @@ The plugin appears in `build/BTrigger_artefacts/Release/VST3/B Trigger.vst3`.
 
 ## Install
 
+The plugin shows up under the manufacturer name **Bartists Info**.
+
+
 | What | Where it goes | Hosts |
 |------|---------------|-------|
 | `B Trigger.vst3` | Windows: `C:\Program Files\Common Files\VST3\`  <br> macOS: `/Library/Audio/Plug-Ins/VST3/` | Studio One, Cubase, FL Studio, Live, Reaper |

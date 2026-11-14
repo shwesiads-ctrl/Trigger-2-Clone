@@ -65,7 +65,7 @@ jobs:
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 5
           auval -a | grep -i "btrg\|B Trigger" || echo "not listed yet"
-          auval -v aufx Btrg Baud
+          auval -v aufx Btrg Bart
 
       - name: Zip (macOS)
         if: matrix.name == 'macOS'
