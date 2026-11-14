@@ -44,6 +44,17 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist/* -DestinationPath B-Trigger-Windows.zip
 
+      # macOS will not load an unsigned binary on Apple Silicon, so sign the bundles ad-hoc.
+      # This is not an Apple Developer signature, so the download still has to be un-quarantined (see the README).
+      - name: Sign ad-hoc (macOS)
+        if: matrix.name == 'macOS'
+        run: |
+          for b in dist/*.vst3 dist/*.app; do
+            [ -e "$b" ] || continue
+            codesign --force --deep --sign - --timestamp=none "$b"
+            codesign --verify --verbose "$b" || true
+          done
+
       - name: Zip (macOS)
         if: matrix.name == 'macOS'
         run: cd dist && ditto -c -k --sequesterRsrc . ../B-Trigger-macOS.zip

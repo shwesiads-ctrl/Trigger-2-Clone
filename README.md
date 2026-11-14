@@ -92,6 +92,20 @@ Put B Trigger on the drum track (kick, snare or tom), as an insert effect. Start
 B Trigger uses [JUCE](https://juce.com), which is available under the AGPLv3 or a commercial license.
 Check the JUCE license terms before you distribute the plugin.
 
+## macOS: "B Trigger.vst3 is damaged and can't be opened"
+
+macOS says this about anything downloaded from the internet that Apple has not notarized. The file is not actually
+damaged: macOS puts a quarantine flag on the download and refuses to open it. Notarizing needs a paid Apple
+Developer ID, so remove the flag yourself after copying the plugin into place:
+
+```sh
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/B Trigger.vst3"
+xattr -dr com.apple.quarantine "/Applications/B Trigger.app"
+```
+
+Then open your DAW again and rescan the plugins. If Logic or Live still refuses it, also run
+`killall -9 AudioComponentRegistrar` or restart the Mac so the plugin cache is rebuilt.
+
 ## Third-party code
 
 `Source/TciConverter.h` is a C++ port of the decoders in [tci2wav](https://github.com/AidanScroggins/tci2wav) by Aidan Scroggins (MIT License, Copyright (c) 2026 Aidan Scroggins), which reverse engineered the TCI format. The MIT license text:
