@@ -83,6 +83,10 @@ public:
         };
         bypassBtn.onStateChange();
 
+        addAndMakeVisible (aboutBtn);
+        aboutBtn.setBounds (410, 10, 84, 28);
+        aboutBtn.onClick = [this] { about.showIt(); };
+
         // The Advanced page is hidden until Ctrl+Alt+V is pressed. Ctrl+Alt+click on the top bar also toggles it.
         addChildComponent (basicBtn);
         basicBtn.setButtonText ("BACK TO BASIC");
@@ -98,6 +102,9 @@ public:
         addAndMakeVisible (basicPage);
         basicPage.setBounds (0, kBarH, kDesignW, 533);
         basicPage.paintFn = [this] (Graphics& g) { paintBasic (g); };
+
+        addChildComponent (about);
+        about.setBounds (0, 0, kDesignW, kDesignH);
 
         addChildComponent (advPage);
         advPage.setBounds (236, 12 + kBarH, AdvancedPage::kPageW, AdvancedPage::kPageH);
@@ -333,7 +340,8 @@ private:
     LedMeter inMeter, outMeter;
     WaveView wave;
     TextButton abA { "A" }, abB { "B" }, copyBtn { "COPY TO B" }, resetBtn { "RESET" }, basicBtn { "BACK TO BASIC" };
-    TextButton bypassBtn { "BYPASS" };
+    TextButton bypassBtn { "BYPASS" }, aboutBtn { "ABOUT" };
+    AboutPanel about;
     std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
     bool resetArmed = false;
     OverlayPage basicPage;

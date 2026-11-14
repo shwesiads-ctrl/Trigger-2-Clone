@@ -17,6 +17,21 @@ using ButtonAttachment = AudioProcessorValueTreeState::ButtonAttachment;
 inline const Colour kLime   = Colour (0xffc9f23c);
 inline const Colour kGreen  = Colour (0xff9fd321);
 inline const Colour kOrange = Colour (0xfff0661c);
+#ifndef BT_VERSION
+ #ifdef JucePlugin_VersionString
+  #define BT_VERSION JucePlugin_VersionString
+ #else
+  #define BT_VERSION "1.0.0"
+ #endif
+#endif
+#ifndef BT_COMPANY
+ #ifdef JucePlugin_Manufacturer
+  #define BT_COMPANY JucePlugin_Manufacturer
+ #else
+  #define BT_COMPANY "Bartists Info"
+ #endif
+#endif
+
 inline const Colour kRed    = Colour (0xffe14b45);   // the input, as the detector hears it
 inline const Colour kBlue   = Colour (0xff57a8e8);   // the triggered sample
 inline const Colour kInk    = Colour (0xff2b2a22);
@@ -515,6 +530,140 @@ private:
     Slider zoom, scale;
     double dragStart = 0.0;
     std::vector<float> lo[2], hi[2];
+};
+
+// ---------------------------------------------------------------------------------------------
+// The About panel. It is a child component laid over the editor, not a pop-up window: a window opened by a
+// plugin can end up behind the host and leave the interface stuck.
+class AboutPanel : public Component
+{
+public:
+    AboutPanel()
+    {
+        setWantsKeyboardFocus (true);
+
+        addAndMakeVisible (closeBtn);
+        closeBtn.onClick = [this] { hideIt(); };
+
+        auto link = [this] (HyperlinkButton& b, const String& text, const String& url)
+        {
+            addAndMakeVisible (b);
+            b.setButtonText (text);
+            b.setURL (URL (url));
+            b.setFont (bFont (13.0f, false), false, Justification::centredLeft);
+            b.setColour (HyperlinkButton::textColourId, Colour (0xff1c5c9e));
+        };
+        link (tgBtn,  "@kominit", "https://t.me/kominit");
+        link (srcBtn, "github.com/shwesiads-ctrl/Trigger-2-Clone", "https://github.com/shwesiads-ctrl/Trigger-2-Clone");
+        link (licBtn, "GNU AGPL v3 or later", "https://www.gnu.org/licenses/agpl-3.0.html");
+    }
+
+    void showIt() { setVisible (true); toFront (true); grabKeyboardFocus(); }
+    void hideIt() { setVisible (false); if (onClose) onClose(); }
+    std::function<void()> onClose;
+
+    bool keyPressed (const KeyPress& k) override
+    {
+        if (k == KeyPress::escapeKey) { hideIt(); return true; }
+        return false;
+    }
+
+    void mouseDown (const MouseEvent& e) override
+    {
+        if (! card().contains (e.position))        // a click outside the card closes it
+            hideIt();
+    }
+
+    void paint (Graphics& g) override
+    {
+        g.fillAll (Colours::black.withAlpha (0.45f));
+        const auto c = card();
+        g.setColour (Colour (0xfff4f7e8));
+        g.fillRoundedRectangle (c, 18.0f);
+        g.setColour (Colours::white);
+        g.drawRoundedRectangle (c.reduced (0.5f), 18.0f, 1.5f);
+
+        // ---- header
+        const float x = c.getX() + kPad;
+        auto badge = Rectangle<float> (x, c.getY() + kPad, 52.0f, 52.0f);
+        g.setColour (kInk);
+        g.fillRoundedRectangle (badge, 12.0f);
+        g.setColour (Colour (0xffd4f53a));
+        g.setFont (bFont (26.0f));
+        g.drawText ("B", badge, Justification::centred, false);
+
+        const float tx = badge.getRight() + 14.0f;
+        g.setColour (kInk);
+        g.setFont (bFont (24.0f));
+        g.drawText ("B Trigger", tx, badge.getY() + 2.0f, 300.0f, 28.0f, Justification::bottomLeft, false);
+        g.setColour (kInk.withAlpha (0.7f));
+        g.setFont (bFont (12.5f, false));
+        g.drawText ("Drum Trigger Studio    |    v" + String (BT_VERSION) + "    |    " + String (BT_COMPANY),
+                    tx, badge.getBottom() - 22.0f, 400.0f, 20.0f, Justification::topLeft, false);
+
+        rule (g, c, headerBottom() + 10.0f);
+
+        // ---- who made it
+        label (g, "Developer", 0);
+        g.setColour (kInk);
+        g.setFont (bFont (13.0f, false));
+        g.drawText ("Myo Min Aung", valueX(), rowY (0), 320.0f, kRowH, Justification::centredLeft, false);
+        label (g, "Telegram", 1);
+        label (g, "Source", 2);
+
+        rule (g, c, rowY (3) + 8.0f);
+
+        // ---- licence
+        label (g, "Licence", 0, licY());
+        g.setColour (kInk.withAlpha (0.8f));
+        g.setFont (bFont (11.5f, false));
+        g.drawFittedText ("Free software: use it, study it, change it and share it. A changed version has to keep the "
+                          "same licence and its source has to stay available.\n"
+                          "Built with JUCE (AGPLv3). The .tci converter is a port of tci2wav by Aidan Scroggins (MIT).\n"
+                          "Samples and presets from commercial libraries belong to their owners; this licence does not "
+                          "cover them.",
+                          Rectangle<float> (card().getX() + kPad, licY() + kRowH + 8.0f,
+                                            card().getWidth() - 2 * kPad, 64.0f).toNearestInt(),
+                          Justification::topLeft, 5, 1.0f);
+    }
+
+    void resized() override
+    {
+        const auto c = card();
+        closeBtn.setBounds ((int) c.getCentreX() - 45, (int) c.getBottom() - 48, 90, 30);
+        tgBtn .setBounds ((int) valueX(), (int) rowY (1), 220, (int) kRowH);
+        srcBtn.setBounds ((int) valueX(), (int) rowY (2), 360, (int) kRowH);
+        licBtn.setBounds ((int) valueX(), (int) licY(),   220, (int) kRowH);
+    }
+
+private:
+    static constexpr float kPad = 26.0f, kRowH = 24.0f, kLabelW = 104.0f;
+
+    Rectangle<float> card() const
+    {
+        return Rectangle<float> (0.0f, 0.0f, 548.0f, 396.0f).withCentre (getLocalBounds().getCentre().toFloat());
+    }
+    float headerBottom() const { return card().getY() + kPad + 52.0f; }
+    float rowY (int i) const   { return headerBottom() + 25.0f + (float) i * kRowH; }
+    float licY() const         { return rowY (3) + 8.0f + 1.0f + 12.0f; }
+    float valueX() const       { return card().getX() + kPad + kLabelW; }
+
+    void rule (Graphics& g, Rectangle<float> c, float y)
+    {
+        g.setColour (kInk.withAlpha (0.16f));
+        g.fillRect (c.getX() + kPad, y, c.getWidth() - 2 * kPad, 1.0f);
+    }
+
+    void label (Graphics& g, const String& text, int row, float yOverride = -1.0f)
+    {
+        g.setColour (kInk.withAlpha (0.55f));
+        g.setFont (bFont (12.0f, false));
+        g.drawText (text, card().getX() + kPad, yOverride >= 0.0f ? yOverride : rowY (row),
+                    kLabelW, kRowH, Justification::centredLeft, false);
+    }
+
+    TextButton closeBtn { "CLOSE" };
+    HyperlinkButton tgBtn, srcBtn, licBtn;
 };
 
 // ---------------------------------------------------------------------------------------------

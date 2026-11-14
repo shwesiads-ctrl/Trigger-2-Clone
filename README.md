@@ -16,6 +16,7 @@ and plays up to four sample layers in its place, or blended with the original.
   - **Click a layer's title** (the pencil) to give it your own name. It is saved with the project. Unnamed layers are called Layer 1, 2, 3 ...
 - **REPLACE ORIGINAL** (on by default): the original drum is removed and only your samples play. Switch it off to blend the original with the samples; the **Mix** knob then sets the balance (0 % original only, 100 % samples only). Output Volume is the final gain.
 - **Top bar**
+- **ABOUT**: opens a panel over the interface with the version, the developer, the Telegram contact, the source link and the licence. Click CLOSE, press Escape, or click outside it to close. Like the RESET confirmation, it is drawn inside the plugin rather than in a pop-up window.
 - **BYPASS**: passes the audio straight through and plays no samples, so you can A/B the plugin against the raw track. The detector keeps running and the waveform still marks the hits, so you can dial the trigger in while bypassed. The host's own bypass switch is wired to the same parameter.
 - **RESET** asks on the button itself: the first click turns it into "SURE?", a second click within three seconds does it. There is no pop-up window, because a dialog opened by a plugin can end up behind the host window and lock up the interface.
   - **A / B**: two complete sets of settings to compare. B starts as a copy of A the first time you open it. **COPY TO B** (or **COPY TO A**) copies the current settings across. A and B are kept while the plugin window or project is open.
@@ -97,6 +98,10 @@ Put B Trigger on the drum track (kick, snare or tom), as an insert effect. Start
 - Samples longer than 30 seconds are cut at 30 seconds.
 - **.tci import**: drop a `.tci` file on the library (or use IMPORT TO MY LIBRARY). It is converted automatically on a background thread with a progress bar, into a new folder in My Library with 24-bit WAVs named `FAMILY_MIC_V##_RR#.wav` (velocity layer and round robin, ordered by attack peak) plus a `MAP.txt`. Supports Trigger 2 V1/V2 and Instrument Editor files, mono and stereo. Limits: stereo samples lose their first ~2 ms of attack (not decodable yet, left silent), and a mono sample the solver cannot work out is skipped (listed in `MAP.txt`). Only convert libraries you own.
 - No velocity layers or round robin yet, and no MIDI output.
+
+## Credits
+
+Made by **Myo Min Aung** (Telegram [@kominit](https://t.me/kominit)), published as **Bartists Info**.
 
 ## License
 
