@@ -16,13 +16,21 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
+# AU is macOS only, so it is only added there (Logic and GarageBand load AU, not VST3).
+set(BTRIGGER_FORMATS VST3 Standalone)
+if(APPLE)
+    list(APPEND BTRIGGER_FORMATS AU)
+endif()
+
 juce_add_plugin(BTrigger
     COMPANY_NAME "B Audio"
     PLUGIN_MANUFACTURER_CODE Baud
     PLUGIN_CODE Btrg
-    FORMATS VST3 Standalone
+    FORMATS ${BTRIGGER_FORMATS}
     PRODUCT_NAME "B Trigger"
     VST3_CATEGORIES Fx
+    AU_MAIN_TYPE kAudioUnitType_Effect
+    BUNDLE_ID com.baudio.btrigger
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE

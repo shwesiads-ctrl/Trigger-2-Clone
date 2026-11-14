@@ -28,15 +28,15 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.extra }}
 
-      - name: Build VST3 and Standalone
+      - name: Build the plugin (VST3, AU on macOS, and the standalone)
         run: cmake --build build --config Release --parallel
 
       - name: Collect
         shell: bash
         run: |
           mkdir -p dist
-          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.app" -o -name "*.exe" \) -print
-          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.app" -o -name "*.exe" \) -exec cp -R {} dist/ \;
+          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.component" -o -name "*.app" -o -name "*.exe" \) -print
+          find build/BTrigger_artefacts -maxdepth 4 \( -name "*.vst3" -o -name "*.component" -o -name "*.app" -o -name "*.exe" \) -exec cp -R {} dist/ \;
           ls -la dist
 
       - name: Zip (Windows)
@@ -49,11 +49,23 @@ jobs:
       - name: Sign ad-hoc (macOS)
         if: matrix.name == 'macOS'
         run: |
-          for b in dist/*.vst3 dist/*.app; do
+          for b in dist/*.vst3 dist/*.component dist/*.app; do
             [ -e "$b" ] || continue
             codesign --force --deep --sign - --timestamp=none "$b"
             codesign --verify --verbose "$b" || true
           done
+
+      # Logic only loads an Audio Unit that passes Apple's own validator, so run it here.
+      - name: Validate the Audio Unit (macOS)
+        if: matrix.name == 'macOS'
+        continue-on-error: true
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "dist/B Trigger.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 5
+          auval -a | grep -i "btrg\|B Trigger" || echo "not listed yet"
+          auval -v aufx Btrg Baud
 
       - name: Zip (macOS)
         if: matrix.name == 'macOS'

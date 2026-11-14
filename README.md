@@ -69,13 +69,19 @@ The plugin appears in `build/BTrigger_artefacts/Release/VST3/B Trigger.vst3`.
 
 ## Install
 
-| System  | Copy `B Trigger.vst3` to |
-|---------|---------------------------|
-| Windows | `C:\Program Files\Common Files\VST3\` |
-| macOS   | `~/Library/Audio/Plug-Ins/VST3/` |
+| What | Where it goes | Hosts |
+|------|---------------|-------|
+| `B Trigger.vst3` | Windows: `C:\Program Files\Common Files\VST3\`  <br> macOS: `/Library/Audio/Plug-Ins/VST3/` | Studio One, Cubase, FL Studio, Live, Reaper |
+| `B Trigger.component` | macOS: `/Library/Audio/Plug-Ins/Components/` | Logic Pro, GarageBand, Final Cut |
+| `B Trigger.exe` / `B Trigger.app` | anywhere | runs on its own, no DAW |
 
-Then rescan plugins in your DAW. On macOS a plugin downloaded from the internet may be blocked the first time;
-run `xattr -cr "B Trigger.vst3"` in Terminal once, or allow it in System Settings, Privacy & Security.
+On Windows, unblock the zip before extracting: right-click it, Properties, tick **Unblock**, OK. Copy the whole
+`B Trigger.vst3` **folder**, not just the file inside it.
+
+On macOS, remove the quarantine flag after copying (see "is damaged and can't be opened" below), then rescan.
+Logic only looks for Audio Units when it starts, so quit Logic first; if it still does not appear, run
+`killall -9 AudioComponentRegistrar` in Terminal, reopen Logic, and let it scan. **Logic Pro > Settings >
+Plug-in Manager** shows the result and can rescan a failed plugin.
 
 ## Use it in a DAW
 
@@ -133,10 +139,11 @@ Developer ID, so remove the flag yourself after copying the plugin into place:
 
 ```sh
 xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/B Trigger.vst3"
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/B Trigger.component"
 xattr -dr com.apple.quarantine "/Applications/B Trigger.app"
 ```
 
-Then open your DAW again and rescan the plugins. If Logic or Live still refuses it, also run
+Then open your DAW again and rescan the plugins. Logic also needs `killall -9 AudioComponentRegistrar` before it will look at the Audio Unit again. If Logic or Live still refuses it, also run
 `killall -9 AudioComponentRegistrar` or restart the Mac so the plugin cache is rebuilt.
 
 ## Third-party code
