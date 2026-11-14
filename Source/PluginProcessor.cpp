@@ -16,10 +16,22 @@ BTriggerProcessor::BTriggerProcessor()
         inPeak[c].store (0.0f);
         outPeak[c].store (0.0f);
     }
+    rawHist = std::make_unique<std::atomic<float>[]> (kRaw);
+    wetHist = std::make_unique<std::atomic<float>[]> (kRaw);
     for (int i = 0; i < kRaw; ++i)
     {
         rawHist[i].store (0.0f);
         wetHist[i].store (0.0f);
+    }
+    for (int s = 0; s < 2; ++s)
+    {
+        blkLo[s] = std::make_unique<std::atomic<float>[]> (kBlks);
+        blkHi[s] = std::make_unique<std::atomic<float>[]> (kBlks);
+        for (int i = 0; i < kBlks; ++i)
+        {
+            blkLo[s][i].store (0.0f);
+            blkHi[s][i].store (0.0f);
+        }
     }
     for (int i = 0; i < kHits; ++i)
         hitPos[i].store (-1);
@@ -740,8 +752,21 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         fx.process (wetL, wetR);                       // gate, EQ, compressor, delay, reverb on the samples
 
-        wetHist[rawPos & (kRaw - 1)].store (0.5f * (wetL + wetR), std::memory_order_relaxed);
-        ++rawPos;
+        const float wetM = 0.5f * (wetL + wetR);
+        wetHist[rawPos & (kRaw - 1)].store (wetM, std::memory_order_relaxed);
+        bLo[0] = juce::jmin (bLo[0], detSig);  bHi[0] = juce::jmax (bHi[0], detSig);
+        bLo[1] = juce::jmin (bLo[1], wetM);    bHi[1] = juce::jmax (bHi[1], wetM);
+        if ((++rawPos & (kBlkSize - 1)) == 0)
+        {
+            const int bi = (int) (blkPos & (kBlks - 1));
+            for (int s = 0; s < 2; ++s)
+            {
+                blkLo[s][bi].store (bLo[s], std::memory_order_relaxed);
+                blkHi[s][bi].store (bHi[s], std::memory_order_relaxed);
+                bLo[s] = bHi[s] = 0.0f;
+            }
+            ++blkPos;
+        }
 
         const float mix = smMix.getNextValue();
         const float og = smOut.getNextValue();
