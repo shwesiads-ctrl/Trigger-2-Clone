@@ -276,7 +276,19 @@ public:
                                            Colour (0xff272b1d), b.getX(), b.getY(), true));
         g.fillRoundedRectangle (b, 20.0f);
 
-        const auto area = b.reduced (12.0f, 14.0f);
+        const auto inner = b.reduced (12.0f, 14.0f);
+        const float split = std::floor (inner.getWidth() * 0.57f);
+        paintOverview (g, inner.withWidth (split - 8.0f));
+        paintDetail (g, inner.withTrimmedLeft (split + 8.0f));
+
+        g.setColour (Colours::white.withAlpha (0.35f));
+        g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
+    }
+
+private:
+    // ---- left: the last two seconds, one column per 5 ms
+    void paintOverview (Graphics& g, Rectangle<float> area)
+    {
         const float cy = area.getCentreY();
         const float half = area.getHeight() * 0.5f;
         const int cols = BTriggerProcessor::kCols;
@@ -315,12 +327,106 @@ public:
             t.addTriangle (x - 6.0f, area.getBottom() + 8.0f, x + 6.0f, area.getBottom() + 8.0f, x, area.getBottom() - 1.0f);
             g.fillPath (t);
         }
-
-        g.setColour (Colours::white.withAlpha (0.35f));
-        g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
     }
 
-private:
+    // ---- right: a close-up of the last hit, sample by sample, with the trigger point and measurements
+    void paintDetail (Graphics& g, Rectangle<float> area)
+    {
+        g.setColour (Colours::black.withAlpha (0.28f));
+        g.fillRoundedRectangle (area.expanded (6.0f, 8.0f), 12.0f);
+
+        g.setColour (Colours::white.withAlpha (0.8f));
+        g.setFont (bFont (11.0f));
+        g.drawText ("ATTACK DETAIL", area.removeFromTop (14.0f), Justification::centredLeft, false);
+
+        auto stats = area.removeFromBottom (30.0f);
+        auto axis = area.removeFromBottom (14.0f);
+        area.removeFromTop (2.0f);
+        const float cy = area.getCentreY();
+        const float half = area.getHeight() * 0.5f;
+
+        const int len = BTriggerProcessor::kDetailLen, pre = BTriggerProcessor::kDetailPre;
+        const float rate = proc.hitRate.load();
+        const bool have = proc.hitRev.load() > 0;
+        const float peak = proc.hitPeak.load();
+        const float scale = have ? 0.92f / jmax (peak, 0.02f) : 1.0f;
+
+        g.setColour (Colour (0x55c9f23c));
+        g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
+
+        // time grid every 5 ms, 0 at the trigger point
+        const float msPerSample = 1000.0f / rate;
+        const float pxPerSample = area.getWidth() / (float) len;
+        g.setFont (bFont (9.5f));
+        for (int ms = -10; ms <= 35; ms += 5)
+        {
+            const float x = area.getX() + ((float) pre + (float) ms / msPerSample) * pxPerSample;
+            if (x < area.getX() || x > area.getRight())
+                continue;
+            g.setColour (Colours::white.withAlpha (ms == 0 ? 0.0f : 0.12f));
+            g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
+            g.setColour (Colours::white.withAlpha (0.65f));
+            g.drawText (String (ms), Rectangle<float> (x - 12.0f, axis.getY(), 24.0f, axis.getHeight()), Justification::centred, false);
+        }
+        g.drawText ("ms", Rectangle<float> (axis.getRight() - 16.0f, axis.getY(), 18.0f, axis.getHeight()), Justification::centredRight, false);
+
+        if (! have)
+        {
+            g.setColour (Colours::white.withAlpha (0.55f));
+            g.setFont (bFont (12.0f));
+            g.drawText ("Hit a drum or press TRIGGER", area, Justification::centred, false);
+            return;
+        }
+
+        // waveform: min and max per pixel column, so nothing is skipped
+        const int w = jmax (1, (int) area.getWidth());
+        g.setColour (Colour (0xffd4f53a));
+        for (int x = 0; x < w; ++x)
+        {
+            const int i0 = x * len / w, i1 = jmax (i0 + 1, (x + 1) * len / w);
+            float lo = 0.0f, hi = 0.0f;
+            for (int i = i0; i < i1; ++i)
+            {
+                const float v = proc.hitWave[i].load (std::memory_order_relaxed);
+                lo = jmin (lo, v);
+                hi = jmax (hi, v);
+            }
+            const float yHi = cy - jlimit (-1.0f, 1.0f, hi * scale) * half;
+            const float yLo = cy - jlimit (-1.0f, 1.0f, lo * scale) * half;
+            g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
+        }
+
+        // threshold
+        const float thr = proc.hitThr.load() * scale * half;
+        if (thr > 1.0f && thr < half)
+        {
+            g.setColour (Colours::white.withAlpha (0.75f));
+            g.fillRect (area.getX(), cy - thr - 0.5f, area.getWidth(), 1.0f);
+            g.fillRect (area.getX(), cy + thr - 0.5f, area.getWidth(), 1.0f);
+        }
+
+        // trigger point and peak point
+        const float xT = area.getX() + (float) pre * pxPerSample;
+        g.setColour (kOrange);
+        g.fillRect (xT - 1.0f, area.getY(), 2.0f, area.getHeight());
+        Path tri;
+        tri.addTriangle (xT - 5.0f, area.getY() - 1.0f, xT + 5.0f, area.getY() - 1.0f, xT, area.getY() + 7.0f);
+        g.fillPath (tri);
+        const float xP = area.getX() + (float) proc.hitPeakIndex.load() * pxPerSample;
+        g.setColour (Colours::white);
+        const float pv = proc.hitWave[jlimit (0, len - 1, proc.hitPeakIndex.load())].load (std::memory_order_relaxed);
+        g.fillEllipse (xP - 3.0f, cy - jlimit (-1.0f, 1.0f, pv * scale) * half - 3.0f, 6.0f, 6.0f);
+        g.drawLine (xP, area.getY() + 8.0f, xP, area.getBottom() - 2.0f, 1.0f);
+
+        // numbers
+        g.setColour (Colours::white);
+        g.setFont (bFont (11.5f));
+        const float pk = Decibels::gainToDecibels (peak, -90.0f);
+        g.drawText ("PEAK " + String (pk, 1) + " dB", stats.removeFromTop (15.0f), Justification::centredLeft, false);
+        g.setColour (kOrange);
+        g.drawText ("RISE " + String (proc.hitAttackMs.load(), 2) + " ms   |   trigger = 0", stats, Justification::centredLeft, false);
+    }
+
     BTriggerProcessor& proc;
 };
 
@@ -863,7 +969,7 @@ private:
             std::sort (files.begin(), files.end(), byName);
 
             for (const auto& d : dirs)
-                if (owner.dirVisible (d) && d != BTriggerProcessor::userPresetDir())   // presets live in the Presets tab
+                if (owner.dirVisible (d) && d != BTriggerProcessor::userPresetDir() && d.getFileName() != "User Samples")   // presets live in the Presets tab
                     addSubItem (new LibItem (owner, d));
             for (const auto& f : files)
                 if (owner.fileVisible (f))
@@ -991,19 +1097,58 @@ private:
     {
         PopupMenu m;
         const bool ok = isDeletable (file);
+        const File folder = file.isDirectory() ? file : file.getParentDirectory();
+        const bool canCreate = folder == myLibrary() || isDeletable (folder);
+        m.addItem (4, "New folder", canCreate);
         m.addItem (3, "Rename", ok);
         m.addItem (1, file.isDirectory() ? "Delete folder" : "Delete", ok);
-        if (! ok)
-            m.addItem (2, "Factory sounds can't be renamed or deleted", false);
+        if (! ok && ! canCreate)
+            m.addItem (2, "Factory sounds can't be changed", false);
         SafePointer<LibraryPanel> sp (this);
-        m.showMenuAsync (PopupMenu::Options(), [sp, file] (int r)
+        m.showMenuAsync (PopupMenu::Options(), [sp, file, folder] (int r)
                          {
                              if (auto* self = sp.getComponent())
                              {
                                  if (r == 1) self->askDelete (file);
                                  if (r == 3) self->startRename (file, false);
+                                 if (r == 4) self->createFolder (folder, false);
                              }
                          });
+    }
+
+    // make "New Folder" and open its name for typing
+    void createFolder (const File& parent, bool preset)
+    {
+        const File f = parent.getNonexistentChildFile ("New Folder", {}, false);
+        if (! f.createDirectory())
+        {
+            say ("Could not create the folder");
+            return;
+        }
+        if (preset)
+            rebuildPresets();
+        else
+            rebuild();
+        auto& t = preset ? presetTree : tree;
+        std::function<void (TreeViewItem*)> openTo = [&] (TreeViewItem* it)
+        {
+            for (int i = 0; i < it->getNumSubItems(); ++i)
+            {
+                auto* kid = it->getSubItem (i);
+                File kf;
+                if (preset) { if (auto* pi = dynamic_cast<PresetItem*> (kid)) kf = pi->getFile(); }
+                else if (auto* li = dynamic_cast<LibItem*> (kid)) kf = li->getFile();
+                if (kf != File() && (f == kf || f.isAChildOf (kf)))
+                {
+                    kid->setOpen (true);
+                    openTo (kid);
+                }
+            }
+        };
+        if (auto* r = t.getRootItem())
+            openTo (r);
+        SafePointer<LibraryPanel> sp (this);
+        Timer::callAfterDelay (60, [sp, f, preset] { if (auto* self = sp.getComponent()) self->startRename (f, preset); });
     }
 
     // ---- rename: a small text box laid over the row
@@ -1366,21 +1511,25 @@ private:
     {
         PopupMenu m;
         const bool user = it.isUser();
+        const bool inUser = user || it.getKind() == PresetItem::UserRoot;
+        const File f = it.getFile();
+        const File folder = f.isDirectory() ? f : f.getParentDirectory();
+        m.addItem (4, "New folder", inUser);
         if (user)
         {
             m.addItem (3, "Rename");
             m.addItem (1, it.getKind() == PresetItem::UserDir ? "Delete folder" : "Delete");
         }
-        else
-            m.addItem (2, "Factory presets can't be renamed or deleted", false);
+        else if (! inUser)
+            m.addItem (2, "Factory presets can't be changed", false);
         SafePointer<LibraryPanel> sp (this);
-        const File f = it.getFile();
-        m.showMenuAsync (PopupMenu::Options(), [sp, f] (int r)
+        m.showMenuAsync (PopupMenu::Options(), [sp, f, folder] (int r)
                          {
                              if (auto* self = sp.getComponent())
                              {
                                  if (r == 1) self->askDeletePreset (f);
                                  if (r == 3) self->startRename (f, true);
+                                 if (r == 4) self->createFolder (folder, true);
                              }
                          });
     }

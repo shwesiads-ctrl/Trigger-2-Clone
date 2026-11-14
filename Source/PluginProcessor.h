@@ -92,6 +92,16 @@ public:
     std::atomic<unsigned char> waveMarks[kCols];
     std::atomic<int> waveHead { 0 };
 
+    // Attack detail: a close-up of the most recent hit (about 11 ms before the trigger and 35 ms after)
+    static constexpr int kDetailLen = 2048, kDetailPre = 512;
+    std::atomic<float> hitWave[kDetailLen];
+    std::atomic<int> hitRev { 0 };
+    std::atomic<float> hitPeak { 0.0f };        // linear peak of the transient detector
+    std::atomic<float> hitAttackMs { 0.0f };    // trigger to waveform maximum
+    std::atomic<float> hitThr { 0.0f };         // threshold in force when it fired
+    std::atomic<float> hitRate { 44100.0f };
+    std::atomic<int> hitPeakIndex { 0 };
+
 private:
     struct Voice
     {
@@ -165,6 +175,13 @@ private:
     juce::uint64 stampCounter = 0;
     juce::SmoothedValue<float> smMix, smOut;
     std::atomic<float> manualVel { -1.0f };
+
+    static constexpr int kRing = 4096;
+    float ring[kRing] {};
+    int ringPos = 0, capLeft = 0, capOnset = 0;
+    float capPeak = 0.0f, capThr = 0.0f;
+    void startCapture (float thr);
+    void finishCapture();
 
     double samplesPerCol = 220.0, colAcc = 0.0;
     float colMax = 0.0f;

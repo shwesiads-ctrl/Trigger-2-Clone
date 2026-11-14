@@ -16,6 +16,8 @@ BTriggerProcessor::BTriggerProcessor()
         inPeak[c].store (0.0f);
         outPeak[c].store (0.0f);
     }
+    for (int i = 0; i < kDetailLen; ++i)
+        hitWave[i].store (0.0f);
     for (int i = 0; i < kCols; ++i)
     {
         wavePeaks[i].store (0.0f);
@@ -520,6 +522,38 @@ void BTriggerProcessor::fireVoices (float peak)
     }
 }
 
+void BTriggerProcessor::startCapture (float thr)
+{
+    if (capLeft > 0)
+        return;
+    capOnset = (ringPos - 1) & (kRing - 1);
+    capLeft = kDetailLen - kDetailPre;
+    capThr = thr;
+}
+
+void BTriggerProcessor::finishCapture()
+{
+    const int start = capOnset - kDetailPre;
+    float mx = 0.0f;
+    int mxAt = kDetailPre;
+    for (int j = 0; j < kDetailLen; ++j)
+    {
+        const float v = ring[(start + j) & (kRing - 1)];
+        hitWave[j].store (v, std::memory_order_relaxed);
+        if (j >= kDetailPre && j < kDetailPre + (int) (0.02 * sampleRate) && std::abs (v) > mx)
+        {
+            mx = std::abs (v);
+            mxAt = j;
+        }
+    }
+    hitPeak.store (mx);
+    hitPeakIndex.store (mxAt);
+    hitAttackMs.store ((float) (mxAt - kDetailPre) * 1000.0f / (float) sampleRate);
+    hitThr.store (capThr);
+    hitRate.store ((float) sampleRate);
+    ++hitRev;
+}
+
 void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -559,6 +593,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     {
         fireVoices (manual);
         markPending = true;
+        startCapture (thrLin);
     }
 
     for (int i = 0; i < n; ++i)
@@ -576,6 +611,11 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         mInL = juce::jmax (mInL, std::abs (inL * inGain));
         mInR = juce::jmax (mInR, std::abs (inR * inGain));
         colMax = juce::jmax (colMax, std::abs (mono));
+
+        ring[ringPos] = mono;
+        ringPos = (ringPos + 1) & (kRing - 1);
+        if (capLeft > 0 && --capLeft == 0)
+            finishCapture();
 
         if (cooldown > 0)
             --cooldown;
@@ -595,6 +635,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         {
             windowLeft = winSamples;
             winPeak = det;
+            startCapture (thrLin);
         }
         else if (! armed && cooldown <= 0 && env < thrLin * rearm)
         {
