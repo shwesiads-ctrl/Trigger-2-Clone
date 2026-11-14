@@ -282,12 +282,28 @@ public:
         zoom.getProperties().set ("ring", (int) kOrange.getARGB());
         zoom.setTooltip ("ZOOM: how much time the display shows, 20 ms to 12 s (double-click to reset)");
         zoom.onValueChange = [this] { repaint(); };
+
+        // Display only. INPUT VOLUME feeds the trigger detector, so it must not be used to make the wave
+        // bigger; this magnifies the picture and the threshold lines together instead.
+        addAndMakeVisible (scale);
+        scale.setSliderStyle (Slider::RotaryVerticalDrag);
+        scale.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
+        scale.setRotaryParameters (MathConstants<float>::pi * 1.2f, MathConstants<float>::pi * 2.8f, true);
+        scale.setMouseDragSensitivity (140);
+        scale.setRange (0.0, 1.0, 0.0);
+        scale.setValue (0.0, dontSendNotification);
+        scale.setDoubleClickReturnValue (true, 0.0);
+        scale.getProperties().set ("ring", (int) kGreen.getARGB());
+        scale.setTooltip ("SCALE: makes the picture bigger without changing the trigger (double-click to reset)");
+        scale.onValueChange = [this] { repaint(); };
     }
+
+    float dispGain() const { return std::pow (64.0f, (float) scale.getValue()); }
 
     // How much time is on screen: turned down 20 ms (the attack sample by sample), turned up 12 s.
     float windowMs() const { return kMinMs * std::pow (kMaxMs / kMinMs, (float) zoom.getValue()); }
 
-    void resized() override { zoom.setBounds (10, 8, 30, 30); }
+    void resized() override { zoom.setBounds (10, 8, 30, 30); scale.setBounds (44, 8, 30, 30); }
 
     void mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w) override
     {
@@ -371,7 +387,7 @@ public:
         // A fixed scale, not an automatic one: the top of the display is full scale, so turning INPUT VOLUME
         // up really does make the wave bigger, and the threshold lines only move when SENSITIVITY moves.
         ignoreUnused (peakView);
-        const float gain = 1.0f;
+        const float gain = dispGain();
 
         // ---- time ruler
         {
@@ -446,11 +462,13 @@ public:
                 name = proc.layerFileName (l);
         g.setColour (Colours::white.withAlpha (0.45f));
         g.setFont (bFont (12.0f));
-        g.drawText (name, stats.withTrimmedLeft (30.0f).withTrimmedRight (180.0f), Justification::centredLeft, true);
+        g.drawText (name, stats.withTrimmedLeft (64.0f).withTrimmedRight (200.0f), Justification::centredLeft, true);
 
         g.setColour (Colours::white.withAlpha (0.55f));
         g.setFont (bFont (11.0f));
         String right = ms >= 1000.0f ? String (ms / 1000.0f, 1) + " s" : String ((int) std::round (ms)) + " ms";
+        if (gain > 1.05f)
+            right += "   x" + String (gain, gain < 10.0f ? 1 : 0);
         if (proc.hitRev.load() > 0)
             right = "PEAK " + String (Decibels::gainToDecibels (proc.hitPeak.load(), -90.0f), 1) + " dB    RISE "
                     + String (proc.hitAttackMs.load(), 2) + " ms    " + right;
@@ -494,7 +512,7 @@ private:
     }
 
     BTriggerProcessor& proc;
-    Slider zoom;
+    Slider zoom, scale;
     double dragStart = 0.0;
     std::vector<float> lo[2], hi[2];
 };
