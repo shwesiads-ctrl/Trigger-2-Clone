@@ -276,10 +276,7 @@ public:
                                            Colour (0xff272b1d), b.getX(), b.getY(), true));
         g.fillRoundedRectangle (b, 20.0f);
 
-        const auto inner = b.reduced (12.0f, 14.0f);
-        const float split = std::floor (inner.getWidth() * 0.57f);
-        paintOverview (g, inner.withWidth (split - 8.0f));
-        paintDetail (g, inner.withTrimmedLeft (split + 8.0f));
+        paintDetail (g, b.reduced (14.0f, 14.0f));
 
         g.setColour (Colours::white.withAlpha (0.35f));
         g.drawRoundedRectangle (b.reduced (1.0f), 20.0f, 2.0f);
@@ -332,16 +329,9 @@ private:
     // ---- right: a close-up of the last hit, sample by sample, with the trigger point and measurements
     void paintDetail (Graphics& g, Rectangle<float> area)
     {
-        g.setColour (Colours::black.withAlpha (0.28f));
-        g.fillRoundedRectangle (area.expanded (6.0f, 8.0f), 12.0f);
-
-        g.setColour (Colours::white.withAlpha (0.8f));
-        g.setFont (bFont (11.0f));
-        g.drawText ("ATTACK DETAIL", area.removeFromTop (14.0f), Justification::centredLeft, false);
-
-        auto stats = area.removeFromBottom (30.0f);
+        auto stats = area.removeFromTop (14.0f);
         auto axis = area.removeFromBottom (14.0f);
-        area.removeFromTop (2.0f);
+        area.removeFromTop (6.0f);
         const float cy = area.getCentreY();
         const float half = area.getHeight() * 0.5f;
 
@@ -375,6 +365,8 @@ private:
             g.setColour (Colours::white.withAlpha (0.55f));
             g.setFont (bFont (12.0f));
             g.drawText ("Hit a drum or press TRIGGER", area, Justification::centred, false);
+            g.setColour (Colour (0x88c9f23c));
+            g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
             return;
         }
 
@@ -419,12 +411,10 @@ private:
         g.drawLine (xP, area.getY() + 8.0f, xP, area.getBottom() - 2.0f, 1.0f);
 
         // numbers
-        g.setColour (Colours::white);
+        g.setColour (Colours::white.withAlpha (0.9f));
         g.setFont (bFont (11.5f));
         const float pk = Decibels::gainToDecibels (peak, -90.0f);
-        g.drawText ("PEAK " + String (pk, 1) + " dB", stats.removeFromTop (15.0f), Justification::centredLeft, false);
-        g.setColour (kOrange);
-        g.drawText ("RISE " + String (proc.hitAttackMs.load(), 2) + " ms   |   trigger = 0", stats, Justification::centredLeft, false);
+        g.drawText ("PEAK " + String (pk, 1) + " dB     RISE " + String (proc.hitAttackMs.load(), 2) + " ms", stats, Justification::centredRight, false);
     }
 
     BTriggerProcessor& proc;
