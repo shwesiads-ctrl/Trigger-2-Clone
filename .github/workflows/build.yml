@@ -2,6 +2,10 @@ name: Build B Trigger
 
 on:
   push:
+    # Documentation-only pushes do not need a build (macOS minutes are billed at 10x on a private repo).
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
