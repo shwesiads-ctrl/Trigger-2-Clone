@@ -267,10 +267,33 @@ private:
 class WaveView : public Component
 {
 public:
-    explicit WaveView (BTriggerProcessor& p) : proc (p) {}
+    explicit WaveView (BTriggerProcessor& p) : proc (p)
+    {
+        addAndMakeVisible (zoom);
+        zoom.setSliderStyle (Slider::RotaryVerticalDrag);
+        zoom.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
+        zoom.setRotaryParameters (MathConstants<float>::pi * 1.2f, MathConstants<float>::pi * 2.8f, true);
+        zoom.setMouseDragSensitivity (160);
+        zoom.setRange (0.0, 1.0, 0.0);
+        zoom.setValue (1.0, dontSendNotification);
+        zoom.setDoubleClickReturnValue (true, 1.0);
+        zoom.getProperties().set ("ring", (int) kOrange.getARGB());
+        zoom.setTooltip ("ZOOM: turn to look at the attack in detail (double-click to reset)");
+        zoom.onValueChange = [this] { repaint(); };
+    }
 
-    // A scrolling waveform of the last 0.4 s, drawn as true min/max so every attack shows in detail.
-    // Orange markers are the hits; the readout in the corner is the last hit's peak and rise time.
+    // Window length in ms: fully turned up 400 ms, fully turned down 3 ms (about 130 samples), logarithmic.
+    float windowMs() const { return 3.0f * std::pow (400.0f / 3.0f, (float) zoom.getValue()); }
+
+    void resized() override { zoom.setBounds (10, 8, 34, 34); }
+
+    void mouseWheelMove (const MouseEvent&, const MouseWheelDetails& w) override
+    {
+        zoom.setValue (jlimit (0.0, 1.0, zoom.getValue() + (double) w.deltaY * 0.25), sendNotificationSync);
+    }
+
+    // A scrolling waveform drawn from the raw input samples, so the ZOOM knob can show anything from the last
+    // 0.4 s down to single samples. Orange markers are the trigger points; the corner readout is the last hit.
     void paint (Graphics& g) override
     {
         const auto b = getLocalBounds().toFloat();
@@ -279,57 +302,86 @@ public:
         g.fillRoundedRectangle (b, 20.0f);
 
         auto area = b.reduced (14.0f, 14.0f);
-        auto stats = area.removeFromTop (14.0f);
+        auto stats = area.removeFromTop (22.0f);
         auto axis = area.removeFromBottom (14.0f);
-        area.removeFromTop (6.0f);
+        area.removeFromTop (4.0f);
         const float cy = area.getCentreY();
         const float half = area.getHeight() * 0.5f;
-        const int cols = BTriggerProcessor::kFine;
-        const int head = proc.fineHead.load();
-        const float colsPerMs = (float) cols / (float) (BTriggerProcessor::kFineSeconds * 1000.0);
 
-        // time ruler: 0 is now, at the right edge
-        g.setFont (bFont (9.5f));
-        for (int ms = 0; ms <= 400; ms += 50)
-        {
-            const float x = area.getRight() - (float) ms * colsPerMs * area.getWidth() / (float) cols;
-            g.setColour (Colours::white.withAlpha (0.12f));
-            g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
-            g.setColour (Colours::white.withAlpha (0.65f));
-            g.drawText (ms == 0 ? "now" : "-" + String (ms), Rectangle<float> (x - 16.0f, axis.getY(), 32.0f, axis.getHeight()),
-                        Justification::centred, false);
-        }
+        const float rate = proc.sampleRateForUI.load();
+        const float ms = windowMs();
+        const juce::int64 now = proc.rawCount.load (std::memory_order_acquire);
+        const int n = jlimit (16, BTriggerProcessor::kRaw - 8, (int) std::round (ms * 0.001f * rate));
+        const juce::int64 first = now - n;
+        const float pxPerSample = area.getWidth() / (float) n;
+        auto xOf = [&] (juce::int64 idx) { return area.getX() + (float) (idx - first) * pxPerSample; };
+        auto at = [&] (juce::int64 idx) { return idx < 0 ? 0.0f : proc.rawHist[idx & (BTriggerProcessor::kRaw - 1)].load (std::memory_order_relaxed); };
 
-        // waveform
-        const int w = jmax (1, (int) area.getWidth());
-        float gain = 1.0f;
+        // time ruler: pick a round step that gives about 6 ticks
         {
-            float mx = 0.0f;
-            for (int i = 0; i < cols; i += 2)
-                mx = jmax (mx, jmax (std::abs (proc.fineLo[i].load (std::memory_order_relaxed)),
-                                      std::abs (proc.fineHi[i].load (std::memory_order_relaxed))));
-            smooth = jmax (mx, smooth * 0.96f);
-            gain = smooth > 0.02f ? jmin (1.0f / smooth, 40.0f) * 0.92f : 1.0f;
-        }
-        g.setColour (Colour (0xffd4f53a));
-        for (int x = 0; x < w; ++x)
-        {
-            const int c0 = x * cols / w, c1 = jmax (c0 + 1, (x + 1) * cols / w);
-            float lo = 0.0f, hi = 0.0f;
-            for (int c = c0; c < c1; ++c)
+            static const float steps[] = { 0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 20.0f, 50.0f, 100.0f };
+            float step = steps[9];
+            for (float st : steps)
+                if (ms / st <= 8.0f) { step = st; break; }
+            g.setFont (bFont (9.5f));
+            for (float t = 0.0f; t <= ms + 0.001f; t += step)
             {
-                const int idx = (head + c) % cols;
-                lo = jmin (lo, proc.fineLo[idx].load (std::memory_order_relaxed));
-                hi = jmax (hi, proc.fineHi[idx].load (std::memory_order_relaxed));
+                const float x = area.getRight() - t * 0.001f * rate * pxPerSample;
+                g.setColour (Colours::white.withAlpha (0.12f));
+                g.fillRect (x - 0.5f, area.getY(), 1.0f, area.getHeight());
+                g.setColour (Colours::white.withAlpha (0.65f));
+                const String lbl = t < 0.001f ? String ("now") : "-" + (step < 1.0f ? String (t, 1) : String ((int) std::round (t)));
+                g.drawText (lbl, Rectangle<float> (x - 18.0f, axis.getY(), 36.0f, axis.getHeight()), Justification::centred, false);
             }
-            const float yHi = cy - jlimit (-1.0f, 1.0f, hi * gain) * half;
-            const float yLo = cy - jlimit (-1.0f, 1.0f, lo * gain) * half;
-            if (yLo - yHi > 0.2f)
-                g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
         }
+
+        // amplitude: follow the loudest thing in view
+        float peakView = 0.0f;
+        {
+            const int step = jmax (1, n / 4000);
+            for (juce::int64 i = first; i < now; i += step)
+                peakView = jmax (peakView, std::abs (at (i)));
+            smooth = jmax (peakView, smooth * 0.97f);
+        }
+        const float gain = smooth > 0.02f ? jmin (0.92f / smooth, 40.0f) : 1.0f;
 
         g.setColour (Colour (0x88c9f23c));
         g.fillRect (area.getX(), cy - 0.5f, area.getWidth(), 1.0f);
+
+        const int w = jmax (1, (int) area.getWidth());
+        g.setColour (Colour (0xffd4f53a));
+        if (pxPerSample >= 0.7f)
+        {
+            // close up: join the actual samples, and mark each one
+            Path path;
+            for (juce::int64 i = first; i < now; ++i)
+            {
+                const float x = xOf (i), y = cy - jlimit (-1.0f, 1.0f, at (i) * gain) * half;
+                if (i == first) path.startNewSubPath (x, y); else path.lineTo (x, y);
+            }
+            g.strokePath (path, PathStrokeType (1.6f));
+            if (pxPerSample >= 4.0f)
+                for (juce::int64 i = first; i < now; ++i)
+                    g.fillEllipse (xOf (i) - 2.0f, cy - jlimit (-1.0f, 1.0f, at (i) * gain) * half - 2.0f, 4.0f, 4.0f);
+        }
+        else
+        {
+            for (int x = 0; x < w; ++x)
+            {
+                const juce::int64 i0 = first + (juce::int64) x * n / w, i1 = jmax (i0 + 1, first + (juce::int64) (x + 1) * n / w);
+                float lo = 0.0f, hi = 0.0f;
+                for (juce::int64 i = i0; i < i1; ++i)
+                {
+                    const float v = at (i);
+                    lo = jmin (lo, v);
+                    hi = jmax (hi, v);
+                }
+                const float yHi = cy - jlimit (-1.0f, 1.0f, hi * gain) * half;
+                const float yLo = cy - jlimit (-1.0f, 1.0f, lo * gain) * half;
+                if (yLo - yHi > 0.2f)
+                    g.fillRect (area.getX() + (float) x, yHi, 1.0f, jmax (1.0f, yLo - yHi));
+            }
+        }
 
         // threshold (the detector sees the signal after a high-pass, so this is a guide)
         const float sens = proc.apvts.getRawParameterValue ("sens")->load();
@@ -341,14 +393,14 @@ public:
             g.fillRect (area.getX(), cy + thr - 0.75f, area.getWidth(), 1.5f);
         }
 
-        // hits
+        // trigger points
         g.setColour (kOrange);
-        for (int c = 0; c < cols; ++c)
+        for (int k = 0; k < BTriggerProcessor::kHits; ++k)
         {
-            const int idx = (head + c) % cols;
-            if (proc.fineMark[idx].load() == 0)
+            const auto hp = proc.hitPos[k].load();
+            if (hp < first || hp >= now)
                 continue;
-            const float x = area.getX() + ((float) c + 0.5f) * area.getWidth() / (float) cols;
+            const float x = xOf (hp);
             g.fillRect (x - 1.0f, area.getY() - 4.0f, 2.0f, area.getHeight() + 8.0f);
             Path t;
             t.addTriangle (x - 6.0f, area.getY() - 8.0f, x + 6.0f, area.getY() - 8.0f, x, area.getY() + 1.0f);
@@ -356,8 +408,11 @@ public:
             g.fillPath (t);
         }
 
+        // readouts
         g.setColour (Colours::white.withAlpha (0.9f));
         g.setFont (bFont (11.5f));
+        g.drawText ("ZOOM " + (ms < 10.0f ? String (ms, 1) : String ((int) std::round (ms))) + " ms", stats.withTrimmedLeft (34.0f),
+                    Justification::centredLeft, false);
         if (proc.hitRev.load() > 0)
             g.drawText ("LAST HIT   PEAK " + String (Decibels::gainToDecibels (proc.hitPeak.load(), -90.0f), 1) + " dB     RISE "
                             + String (proc.hitAttackMs.load(), 2) + " ms",
@@ -371,6 +426,7 @@ public:
 
 private:
     BTriggerProcessor& proc;
+    Slider zoom;
     float smooth = 0.0f;
 };
 

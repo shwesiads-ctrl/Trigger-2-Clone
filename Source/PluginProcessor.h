@@ -92,12 +92,14 @@ public:
     std::atomic<unsigned char> waveMarks[kCols];
     std::atomic<int> waveHead { 0 };
 
-    // Fine scrolling waveform for the display: min and max per column over the last 0.4 s
-    static constexpr int kFine = 1600;
-    static constexpr double kFineSeconds = 0.4;
-    std::atomic<float> fineLo[kFine], fineHi[kFine];
-    std::atomic<unsigned char> fineMark[kFine];
-    std::atomic<int> fineHead { 0 };
+    // Raw input history for the scrolling waveform: every sample of the last ~0.7 s, so the display can zoom
+    // from the whole window down to individual samples.
+    static constexpr int kRaw = 65536, kHits = 64;
+    std::atomic<float> rawHist[kRaw];
+    std::atomic<juce::int64> rawCount { 0 };          // total samples written so far
+    std::atomic<juce::int64> hitPos[kHits];           // sample index of each recent trigger point (-1 = none)
+    std::atomic<int> hitPosHead { 0 };
+    std::atomic<float> sampleRateForUI { 44100.0f };
 
     // Attack detail: a close-up of the most recent hit (about 11 ms before the trigger and 35 ms after)
     static constexpr int kDetailLen = 2048, kDetailPre = 512;
@@ -190,10 +192,7 @@ private:
     void startCapture (float thr);
     void finishCapture();
 
-    double fineSamples = 11.0, fineAcc = 0.0;
-    float fLo = 0.0f, fHi = 0.0f;
-    int fpos = 0;
-    bool fineMarkPending = false;
+    juce::int64 rawPos = 0;
 
     double samplesPerCol = 220.0, colAcc = 0.0;
     float colMax = 0.0f;

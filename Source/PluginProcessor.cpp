@@ -16,12 +16,10 @@ BTriggerProcessor::BTriggerProcessor()
         inPeak[c].store (0.0f);
         outPeak[c].store (0.0f);
     }
-    for (int i = 0; i < kFine; ++i)
-    {
-        fineLo[i].store (0.0f);
-        fineHi[i].store (0.0f);
-        fineMark[i].store (0);
-    }
+    for (int i = 0; i < kRaw; ++i)
+        rawHist[i].store (0.0f);
+    for (int i = 0; i < kHits; ++i)
+        hitPos[i].store (-1);
     for (int i = 0; i < kDetailLen; ++i)
         hitWave[i].store (0.0f);
     for (int i = 0; i < kCols; ++i)
@@ -434,9 +432,7 @@ void BTriggerProcessor::prepareToPlay (double sr, int)
         }
 
     samplesPerCol = sr * 2.0 / (double) kCols;
-    fineSamples = sr * kFineSeconds / (double) kFine;
-    fineAcc = 0.0;
-    fLo = fHi = 0.0f;
+    sampleRateForUI.store ((float) sr);
     colAcc = 0.0;
     colMax = 0.0f;
     wpos = 0;
@@ -533,6 +529,11 @@ void BTriggerProcessor::fireVoices (float peak)
 
 void BTriggerProcessor::startCapture (float thr)
 {
+    {
+        const int hp = hitPosHead.load();
+        hitPos[hp].store (rawPos - 1);
+        hitPosHead.store ((hp + 1) % kHits);
+    }
     if (capLeft > 0)
         return;
     capOnset = (ringPos - 1) & (kRing - 1);
@@ -601,7 +602,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     if (manual >= 0.0f)
     {
         fireVoices (manual);
-        markPending = fineMarkPending = true;
+        markPending = true;
         startCapture (thrLin);
     }
 
@@ -620,8 +621,8 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         mInL = juce::jmax (mInL, std::abs (inL * inGain));
         mInR = juce::jmax (mInR, std::abs (inR * inGain));
         colMax = juce::jmax (colMax, std::abs (mono));
-        fLo = juce::jmin (fLo, mono * 1.0f);
-        fHi = juce::jmax (fHi, mono * 1.0f);
+        rawHist[rawPos & (kRaw - 1)].store (mono, std::memory_order_relaxed);
+        ++rawPos;
 
         ring[ringPos] = mono;
         ringPos = (ringPos + 1) & (kRing - 1);
@@ -637,7 +638,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             if (--windowLeft == 0)
             {
                 fireVoices (winPeak);
-                markPending = fineMarkPending = true;
+                markPending = true;
                 armed = false;
                 cooldown = retrigSamples;
             }
@@ -728,20 +729,6 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         mOutL = juce::jmax (mOutL, std::abs (outL));
         mOutR = juce::jmax (mOutR, std::abs (outR));
 
-        // ---- fine scrolling waveform
-        fineAcc += 1.0;
-        if (fineAcc >= fineSamples)
-        {
-            fineAcc -= fineSamples;
-            fineLo[fpos].store (fLo);
-            fineHi[fpos].store (fHi);
-            fineMark[fpos].store (fineMarkPending ? 1 : 0);
-            fineMarkPending = false;
-            fLo = fHi = 0.0f;
-            fpos = (fpos + 1) % kFine;
-            fineHead.store (fpos);
-        }
-
         // ---- waveform columns for the display
         colAcc += 1.0;
         if (colAcc >= samplesPerCol)
@@ -755,6 +742,8 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             waveHead.store (wpos);
         }
     }
+
+    rawCount.store (rawPos, std::memory_order_release);
 
     const float decay = std::exp (-(float) n / (0.25f * (float) sampleRate));
     inPeak[0].store (juce::jmax (mInL, inPeak[0].load() * decay));
