@@ -47,6 +47,7 @@ BTriggerProcessor::BTriggerProcessor()
     pSens    = apvts.getRawParameterValue ("sens");
     pRetrig  = apvts.getRawParameterValue ("retrig");
     pDetail  = apvts.getRawParameterValue ("detail");
+    pBypass  = apvts.getRawParameterValue ("bypass");
     pLowCut  = apvts.getRawParameterValue ("lowcut");
     pHighCut = apvts.getRawParameterValue ("highcut");
     pSuppress = apvts.getRawParameterValue ("suppress");
@@ -609,6 +610,9 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     lcCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * lcHz / (float) sampleRate);
     hcCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * hcHz / (float) sampleRate);
     const float supAmt = pSuppress->load() * 0.01f;
+    // Bypass still watches the input and marks the hits, so the display can be used to dial the trigger in,
+    // but it plays no samples and passes the audio through untouched.
+    const bool bypassed = pBypass->load() > 0.5f;
     // How far a new peak must rise above the previous hit's decaying tail to count as a new hit.
     // Higher detail picks up smaller rises (rolls, ghost notes).
     const float rise = juce::jmap (pDetail->load(), 0.0f, 100.0f, 3.0f, 1.6f);
@@ -626,7 +630,7 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     float mInL = 0.0f, mInR = 0.0f, mOutL = 0.0f, mOutR = 0.0f;
 
     const float manual = manualVel.exchange (-1.0f);
-    if (manual >= 0.0f)
+    if (manual >= 0.0f && ! bypassed)
     {
         fireVoices (manual);
         markPending = true;
@@ -671,7 +675,8 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             winPeak = juce::jmax (winPeak, det);
             if (--windowLeft == 0)
             {
-                fireVoices (winPeak);
+                if (! bypassed)
+                    fireVoices (winPeak);
                 markPending = true;
                 armed = false;
                 cooldown = retrigSamples;
@@ -770,8 +775,9 @@ void BTriggerProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         const float mix = smMix.getNextValue();
         const float og = smOut.getNextValue();
-        const float outL = (dryL * (1.0f - mix) + wetL * mix) * og + pvL;
-        const float outR = (dryR * (1.0f - mix) + wetR * mix) * og + pvR;
+        // when bypassed the delayed dry goes straight out, so the reported latency still lines up
+        const float outL = bypassed ? dryL : (dryL * (1.0f - mix) + wetL * mix) * og + pvL;
+        const float outR = bypassed ? dryR : (dryR * (1.0f - mix) + wetR * mix) * og + pvR;
 
         ch[0][i] = outL;
         if (ch[1] != nullptr)

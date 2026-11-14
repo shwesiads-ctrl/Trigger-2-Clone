@@ -123,6 +123,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     addFloat ("lowcut",  "Low Cut",      juce::NormalisableRange<float> (0.0f, 1000.0f, 1.0f, 0.4f), 0.0f);
     addFloat ("highcut", "High Cut",     juce::NormalisableRange<float> (500.0f, 20000.0f, 1.0f, 0.3f), 20000.0f);
     addFloat ("suppress","Suppress",     { 0.0f, 100.0f, 1.0f }, 0.0f);
+    layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { "bypass", 1 }, "Bypass", false));
     addFloat ("outGain", "Output Volume",{ -24.0f, 12.0f, 0.01f }, 0.0f);
     addFloat ("mix",     "Mix",          { 0.0f, 100.0f, 1.0f }, 100.0f);
     addBool  ("replace", "Replace Original", true);   // on: the original drum is removed, only samples play

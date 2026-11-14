@@ -37,6 +37,8 @@ public:
     const juce::String getProgramName (int) override { return {}; }
     void changeProgramName (int, const juce::String&) override {}
 
+    juce::AudioProcessorParameter* getBypassParameter() const override { return apvts.getParameter ("bypass"); }
+
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
@@ -161,6 +163,7 @@ private:
     std::atomic<float>* pInGain = nullptr;
     std::atomic<float>* pSens = nullptr;
     std::atomic<float>* pRetrig = nullptr;
+    std::atomic<float>* pBypass = nullptr;
     std::atomic<float>* pLowCut = nullptr;
     std::atomic<float>* pHighCut = nullptr;
     std::atomic<float>* pSuppress = nullptr;

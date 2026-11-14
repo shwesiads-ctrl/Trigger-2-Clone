@@ -48,22 +48,40 @@ public:
 
         addAndMakeVisible (resetBtn);
         resetBtn.setBounds (222, 10, 80, 28);
+        // No confirmation dialog: a pop-up window from a plugin can open behind the host and lock the UI.
+        // Clicking RESET once asks on the button itself, and a second click within a few seconds does it.
         resetBtn.onClick = [this]
         {
-            SafePointer<Component> sp (this);
-            AlertWindow::showAsync (MessageBoxOptions()
-                                        .withIconType (MessageBoxIconType::QuestionIcon)
-                                        .withTitle ("Reset")
-                                        .withMessage ("Put every knob and layer back to the starting settings?")
-                                        .withButton ("Reset")
-                                        .withButton ("Cancel")
-                                        .withAssociatedComponent (this),
-                                    [this, sp] (int r)
-                                    {
-                                        if (r == 0 && sp != nullptr)
-                                            proc.resetAll();
-                                    });
+            if (resetArmed)
+            {
+                resetArmed = false;
+                resetBtn.setButtonText ("RESET");
+                proc.resetAll();
+                return;
+            }
+            resetArmed = true;
+            resetBtn.setButtonText ("SURE?");
+            SafePointer<Content> sp (this);
+            Timer::callAfterDelay (3000, [sp]
+                                   {
+                                       if (sp != nullptr && sp->resetArmed)
+                                       {
+                                           sp->resetArmed = false;
+                                           sp->resetBtn.setButtonText ("RESET");
+                                       }
+                                   });
         };
+
+        // ---- BYPASS: passes the audio through and plays no samples
+        addAndMakeVisible (bypassBtn);
+        bypassBtn.setBounds (310, 10, 92, 28);
+        bypassBtn.setClickingTogglesState (true);
+        bypassAtt = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (vt, "bypass", bypassBtn);
+        bypassBtn.onStateChange = [this]
+        {
+            bypassBtn.setButtonText (bypassBtn.getToggleState() ? "BYPASSED" : "BYPASS");
+        };
+        bypassBtn.onStateChange();
 
         // The Advanced page is hidden until Ctrl+Alt+V is pressed. Ctrl+Alt+click on the top bar also toggles it.
         addChildComponent (basicBtn);
@@ -315,6 +333,9 @@ private:
     LedMeter inMeter, outMeter;
     WaveView wave;
     TextButton abA { "A" }, abB { "B" }, copyBtn { "COPY TO B" }, resetBtn { "RESET" }, basicBtn { "BACK TO BASIC" };
+    TextButton bypassBtn { "BYPASS" };
+    std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
+    bool resetArmed = false;
     OverlayPage basicPage;
     AdvancedPage advPage { proc };
     TextButton trigBtn { String::fromUTF8 ("\xe2\x96\xb6 TRIGGER") };
