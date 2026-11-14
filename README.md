@@ -91,8 +91,37 @@ Put B Trigger on the drum track (kick, snare or tom), as an insert effect. Start
 
 ## License
 
-B Trigger uses [JUCE](https://juce.com), which is available under the AGPLv3 or a commercial license.
-Check the JUCE license terms before you distribute the plugin.
+B Trigger is free software, released under the **GNU Affero General Public License, version 3 or later
+(AGPL-3.0-or-later)**. You may use, study, change and share it. If you share a changed version, or run it
+as a network service, you have to share your changes under the same licence.
+
+This is the licence the project has to use: B Trigger is built on [JUCE](https://juce.com), which is offered
+either under the AGPLv3 or under a paid commercial licence. Staying open source under the AGPLv3 means no
+JUCE licence has to be bought.
+
+The full licence text is in the `LICENSE` file, and the canonical copy is at
+<https://www.gnu.org/licenses/agpl-3.0.txt>.
+
+    B Trigger, a drum trigger plugin.
+    Copyright (C) 2026 B Trigger contributors
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    GNU Affero General Public License as published by the Free Software Foundation, either version 3
+    of the License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+    Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License along with this program.
+    If not, see <https://www.gnu.org/licenses/>.
+
+### What you may not share
+
+The licence covers **this code**, not other people's sounds. The `.tci` converter is there so you can use
+libraries you have bought, on your own machine. Samples or presets made from a commercial library
+(Steven Slate Drums and the like) stay that company's property, so do not upload them here or anywhere else.
+Only your own recordings and your own sounds belong in a preset pack.
 
 ## macOS: "B Trigger.vst3 is damaged and can't be opened"
 
